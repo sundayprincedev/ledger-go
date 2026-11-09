@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	apperrors "github.com/sundayprincedev/ledger/internal/errors"
 	"github.com/sundayprincedev/ledger/internal/money"
 )
 
@@ -62,23 +63,23 @@ type currencyTotals struct {
 
 func (e *Entry) Validate() error {
 	if e.ID == "" {
-		return ErrEmptyEntryID
+		return apperrors.ErrEmptyEntryID
 	}
 	if len(e.Lines) < 2 {
-		return ErrTooFewLines
+		return apperrors.ErrTooFewLines
 	}
 
 	totals := make(map[string]currencyTotals)
 
 	for _, line := range e.Lines {
 		if line.AccountID == "" {
-			return ErrEmptyAccountID
+			return apperrors.ErrEmptyAccountID
 		}
 		if line.Amount <= 0 {
-			return ErrInvalidAmount
+			return apperrors.ErrLineInvalidAmount
 		}
 		if _, ok := money.CurrencyExists(line.CurrencyCode); !ok {
-			return fmt.Errorf("%w: %s", ErrUnknownCurrency, line.CurrencyCode)
+			return fmt.Errorf("%w: %s", apperrors.ErrUnknownCurrency, line.CurrencyCode)
 		}
 
 		t := totals[line.CurrencyCode]
@@ -96,14 +97,14 @@ func (e *Entry) Validate() error {
 			}
 			t.Credits = sum
 		default:
-			return fmt.Errorf("%w: %s", ErrUnknownDirection, line.Direction)
+			return fmt.Errorf("%w: %s", apperrors.ErrUnknownDirection, line.Direction)
 		}
 		totals[line.CurrencyCode] = t
 	}
 
 	for currencyCode, t := range totals {
 		if t.Debits != t.Credits {
-			return fmt.Errorf("%w: %s debits=%d credits=%d", ErrUnbalancedEntry, currencyCode, t.Debits, t.Credits)
+			return fmt.Errorf("%w: %s debits=%d credits=%d", apperrors.ErrUnbalancedEntry, currencyCode, t.Debits, t.Credits)
 		}
 	}
 
@@ -113,7 +114,7 @@ func (e *Entry) Validate() error {
 func addChecked(a, b int64) (int64, error) {
 	sum := a + b
 	if sum < a {
-		return 0, ErrAmountOverflow
+		return 0, apperrors.ErrAmountOverflow
 	}
 	return sum, nil
 }

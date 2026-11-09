@@ -1,13 +1,15 @@
-package accounts
+package apperrors
 
 import (
 	"errors"
 	"fmt"
 )
 
-var ErrInvalidAmount = errors.New("invalid amount")
-var ErrAccountLocked = errors.New("account locked")
-var ErrAccountNotFound = errors.New("account not found")
+var (
+	ErrAccountInvalidAmount = errors.New("invalid amount")
+	ErrAccountLocked        = errors.New("account locked")
+	ErrAccountNotFound      = errors.New("account not found")
+)
 
 type InsufficientFundsError struct {
 	AccountID       string
