@@ -1,0 +1,199 @@
+{
+  "accounts": [
+    {
+      "account_id": "CUR-001",
+      "kind": "customer_current",
+      "currency": "NGN",
+      "balance": 1800000,
+      "customer_id": "CUST-001",
+      "customer_name": "Emeka Okafor",
+      "overdraft_limit": 500000
+    },
+    {
+      "account_id": "SAV-001",
+      "kind": "customer_savings",
+      "currency": "NGN",
+      "balance": 2500000,
+      "customer_id": "CUST-001",
+      "customer_name": "Emeka Okafor",
+      "interest_rate": 0.045
+    },
+    {
+      "account_id": "CUR-002",
+      "kind": "customer_current",
+      "currency": "USD",
+      "balance": 1200000,
+      "customer_id": "CUST-002",
+      "customer_name": "Anya Petrova",
+      "overdraft_limit": 500000
+    },
+    {
+      "account_id": "SAV-002",
+      "kind": "customer_savings",
+      "currency": "USD",
+      "balance": 450000,
+      "customer_id": "CUST-002",
+      "customer_name": "Anya Petrova",
+      "interest_rate": 0.032
+    },
+    {
+      "account_id": "CUR-003",
+      "kind": "customer_current",
+      "currency": "GBP",
+      "balance": 350000,
+      "customer_id": "CUST-003",
+      "customer_name": "James Whitfield",
+      "overdraft_limit": 200000
+    },
+    {
+      "account_id": "SAV-003",
+      "kind": "customer_savings",
+      "currency": "GBP",
+      "balance": 800000,
+      "customer_id": "CUST-003",
+      "customer_name": "James Whitfield",
+      "interest_rate": 0.038
+    },
+    {
+      "account_id": "CUR-004",
+      "kind": "customer_current",
+      "currency": "NGN",
+      "balance": 50000,
+      "customer_id": "CUST-004",
+      "customer_name": "Ngozi Bello",
+      "overdraft_limit": 0
+    },
+    {
+      "account_id": "MERCH-001",
+      "kind": "merchant",
+      "currency": "NGN",
+      "balance": 0,
+      "merchant_id": "MERCH-001",
+      "merchant_name": "Jollof Express"
+    },
+    {
+      "account_id": "HOUSE-NGN",
+      "kind": "house",
+      "currency": "NGN",
+      "balance": 0
+    },
+    {
+      "account_id": "HOUSE-USD",
+      "kind": "house",
+      "currency": "USD",
+      "balance": 0
+    },
+    {
+      "account_id": "HOUSE-GBP",
+      "kind": "house",
+      "currency": "GBP",
+      "balance": 0
+    },
+    {
+      "account_id": "SUSPENSE-NGN",
+      "kind": "suspense",
+      "currency": "NGN",
+      "balance": 0
+    },
+    {
+      "account_id": "SUSPENSE-USD",
+      "kind": "suspense",
+      "currency": "USD",
+      "balance": 0
+    },
+    {
+      "account_id": "SUSPENSE-GBP",
+      "kind": "suspense",
+      "currency": "GBP",
+      "balance": 0
+    }
+  ],
+  "operations": [
+    {
+      "type": "deposit",
+      "account_id": "CUR-001",
+      "currency": "NGN",
+      "amount": 500000,
+      "note": "cash deposit"
+    },
+    {
+      "type": "withdraw",
+      "account_id": "CUR-001",
+      "currency": "NGN",
+      "amount": 200000
+    },
+    {
+      "type": "transfer",
+      "from_account_id": "CUR-001",
+      "to_account_id": "SAV-001",
+      "currency": "NGN",
+      "amount": 100000,
+      "note": "own-customer, current to savings"
+    },
+    {
+      "type": "transfer",
+      "from_account_id": "CUR-001",
+      "to_account_id": "CUR-004",
+      "currency": "NGN",
+      "amount": 60000,
+      "note": "customer-to-customer"
+    },
+    {
+      "type": "merchant_payout",
+      "to_account_id": "MERCH-001",
+      "currency": "NGN",
+      "amount": 300000
+    },
+    {
+      "type": "fee",
+      "account_id": "MERCH-001",
+      "currency": "NGN",
+      "amount": 15000,
+      "note": "merchant fee to house"
+    },
+    {
+      "type": "interest_accrual",
+      "account_id": "SAV-001",
+      "currency": "NGN",
+      "amount": 9375
+    },
+    {
+      "type": "bulk_transfer",
+      "from_account_id": "CUR-001",
+      "currency": "NGN",
+      "amount": 100001,
+      "note": "weighted split across savings, another customer, and a merchant",
+      "recipients": [
+        { "account_id": "SAV-001", "weight": 500 },
+        { "account_id": "CUR-004", "weight": 300 },
+        { "account_id": "MERCH-001", "weight": 200 }
+      ]
+    },
+    {
+      "type": "deposit",
+      "account_id": "CUR-002",
+      "currency": "USD",
+      "amount": 100000
+    },
+    {
+      "type": "transfer",
+      "from_account_id": "CUR-002",
+      "to_account_id": "SAV-002",
+      "currency": "USD",
+      "amount": 50000
+    },
+    {
+      "type": "withdraw",
+      "account_id": "CUR-003",
+      "currency": "GBP",
+      "amount": 70000
+    },
+    {
+      "type": "transfer",
+      "from_account_id": "CUR-003",
+      "to_account_id": "SAV-003",
+      "currency": "GBP",
+      "amount": 40000
+    }
+  ]
+}
