@@ -7,7 +7,8 @@
       "balance": 1800000,
       "customer_id": "CUST-001",
       "customer_name": "Emeka Okafor",
-      "overdraft_limit": 500000
+      "overdraft_limit": 500000,
+      "tier": 2
     },
     {
       "account_id": "SAV-001",
@@ -16,7 +17,8 @@
       "balance": 2500000,
       "customer_id": "CUST-001",
       "customer_name": "Emeka Okafor",
-      "interest_rate": 0.045
+      "interest_rate": 0.045,
+      "tier": 2
     },
     {
       "account_id": "CUR-002",
@@ -25,7 +27,8 @@
       "balance": 1200000,
       "customer_id": "CUST-002",
       "customer_name": "Anya Petrova",
-      "overdraft_limit": 500000
+      "overdraft_limit": 500000,
+      "tier": 3
     },
     {
       "account_id": "SAV-002",
@@ -34,7 +37,8 @@
       "balance": 450000,
       "customer_id": "CUST-002",
       "customer_name": "Anya Petrova",
-      "interest_rate": 0.032
+      "interest_rate": 0.032,
+      "tier": 3
     },
     {
       "account_id": "CUR-003",
@@ -43,7 +47,8 @@
       "balance": 350000,
       "customer_id": "CUST-003",
       "customer_name": "James Whitfield",
-      "overdraft_limit": 200000
+      "overdraft_limit": 200000,
+      "tier": 1
     },
     {
       "account_id": "SAV-003",
@@ -52,7 +57,8 @@
       "balance": 800000,
       "customer_id": "CUST-003",
       "customer_name": "James Whitfield",
-      "interest_rate": 0.038
+      "interest_rate": 0.038,
+      "tier": 1
     },
     {
       "account_id": "CUR-004",
@@ -61,7 +67,8 @@
       "balance": 50000,
       "customer_id": "CUST-004",
       "customer_name": "Ngozi Bello",
-      "overdraft_limit": 0
+      "overdraft_limit": 0,
+      "tier": 1
     },
     {
       "account_id": "MERCH-001",
@@ -69,7 +76,8 @@
       "currency": "NGN",
       "balance": 0,
       "merchant_id": "MERCH-001",
-      "merchant_name": "Jollof Express"
+      "merchant_name": "Jollof Express",
+      "tier": 2
     },
     {
       "account_id": "HOUSE-NGN",

@@ -19,6 +19,7 @@ type SeedAccount struct {
 	MerchantName   string  `json:"merchant_name,omitempty"`
 	OverdraftLimit int64   `json:"overdraft_limit,omitempty"`
 	InterestRate   float64 `json:"interest_rate,omitempty"`
+	Tier           int     `json:"tier,omitempty"`
 }
 
 type SeedRecipient struct {
