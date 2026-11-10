@@ -8,4 +8,4 @@ type Journal interface {
 	Close() error
 }
 
-var _ Journal = (*journal.FileJournal)(nil)
+// var _ Journal = (*journal.FileJournal)(nil) Move to main later
