@@ -59,7 +59,7 @@ func (r *IDRegistry) Complete(id string) error {
 		return &apperrors.JobError{JobID: id, Err: apperrors.ErrJobNotFound}
 	}
 	if state != StateInFlight {
-		return &apperrors.JobNotPendingError{JobID: id, State: string(state)}
+		return &apperrors.JobNotInFlightError{JobID: id, State: string(state)}
 	}
 	r.m[id] = StateCompleted
 	return nil

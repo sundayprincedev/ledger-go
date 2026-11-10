@@ -63,23 +63,27 @@ type currencyTotals struct {
 
 func (e *Entry) Validate() error {
 	if e.ID == "" {
-		return apperrors.ErrEmptyEntryID
+		return &apperrors.EntryValidationError{Step: apperrors.StepEntryID, LineIndex: -1, Err: apperrors.ErrEmptyEntryID}
 	}
 	if len(e.Lines) < 2 {
-		return apperrors.ErrTooFewLines
+		return &apperrors.EntryValidationError{Step: apperrors.StepLineCount, LineIndex: -1, Err: apperrors.ErrTooFewLines}
 	}
 
 	totals := make(map[string]currencyTotals)
 
-	for _, line := range e.Lines {
+	for i, line := range e.Lines {
 		if line.AccountID == "" {
-			return apperrors.ErrEmptyAccountID
+			return &apperrors.EntryValidationError{Step: apperrors.StepAccountID, LineIndex: i, Err: apperrors.ErrEmptyAccountID}
 		}
 		if line.Amount <= 0 {
-			return apperrors.ErrLineInvalidAmount
+			return &apperrors.EntryValidationError{Step: apperrors.StepAmount, LineIndex: i, Err: apperrors.ErrLineInvalidAmount}
 		}
 		if _, ok := money.CurrencyExists(line.CurrencyCode); !ok {
-			return fmt.Errorf("%w: %s", apperrors.ErrUnknownCurrency, line.CurrencyCode)
+			return &apperrors.EntryValidationError{
+				Step:      apperrors.StepCurrency,
+				LineIndex: i,
+				Err:       fmt.Errorf("%w: %s", apperrors.ErrUnknownCurrency, line.CurrencyCode),
+			}
 		}
 
 		t := totals[line.CurrencyCode]
@@ -87,24 +91,32 @@ func (e *Entry) Validate() error {
 		case Debit:
 			sum, err := addChecked(t.Debits, line.Amount)
 			if err != nil {
-				return err
+				return &apperrors.EntryValidationError{Step: apperrors.StepOverflow, LineIndex: i, Err: err}
 			}
 			t.Debits = sum
 		case Credit:
 			sum, err := addChecked(t.Credits, line.Amount)
 			if err != nil {
-				return err
+				return &apperrors.EntryValidationError{Step: apperrors.StepOverflow, LineIndex: i, Err: err}
 			}
 			t.Credits = sum
 		default:
-			return fmt.Errorf("%w: %s", apperrors.ErrUnknownDirection, line.Direction)
+			return &apperrors.EntryValidationError{
+				Step:      apperrors.StepDirection,
+				LineIndex: i,
+				Err:       fmt.Errorf("%w: %s", apperrors.ErrUnknownDirection, line.Direction),
+			}
 		}
 		totals[line.CurrencyCode] = t
 	}
 
 	for currencyCode, t := range totals {
 		if t.Debits != t.Credits {
-			return fmt.Errorf("%w: %s debits=%d credits=%d", apperrors.ErrUnbalancedEntry, currencyCode, t.Debits, t.Credits)
+			return &apperrors.EntryValidationError{
+				Step:      apperrors.StepBalance,
+				LineIndex: -1,
+				Err:       fmt.Errorf("%w: %s debits=%d credits=%d", apperrors.ErrUnbalancedEntry, currencyCode, t.Debits, t.Credits),
+			}
 		}
 	}
 

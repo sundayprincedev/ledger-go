@@ -1,6 +1,9 @@
 package apperrors
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrEmptyEntryID      = errors.New("entry id is empty")
@@ -14,7 +17,7 @@ var (
 
 	ErrJobNotFound              = errors.New("job not found")
 	ErrJobStateCorrupted        = errors.New("job state is not a recognized type")
-	ErrJobNotPending            = errors.New("job is not pending")
+	ErrJobNotInFlight           = errors.New("job is not in flight")
 	ErrJobConcurrentStateChange = errors.New("job state changed concurrently")
 )
 
@@ -31,15 +34,45 @@ func (e *JobError) Unwrap() error {
 	return e.Err
 }
 
-type JobNotPendingError struct {
+type JobNotInFlightError struct {
 	JobID string
 	State string
 }
 
-func (e *JobNotPendingError) Error() string {
-	return "job " + e.JobID + ": state is " + e.State + ", want pending"
+func (e *JobNotInFlightError) Error() string {
+	return "job " + e.JobID + ": state is " + e.State + ", want in_flight"
 }
 
-func (e *JobNotPendingError) Unwrap() error {
-	return ErrJobNotPending
+func (e *JobNotInFlightError) Unwrap() error {
+	return ErrJobNotInFlight
+}
+
+type ValidationStep string
+
+const (
+	StepEntryID   ValidationStep = "entry_id"
+	StepLineCount ValidationStep = "line_count"
+	StepAccountID ValidationStep = "account_id"
+	StepAmount    ValidationStep = "amount"
+	StepCurrency  ValidationStep = "currency"
+	StepDirection ValidationStep = "direction"
+	StepOverflow  ValidationStep = "overflow"
+	StepBalance   ValidationStep = "balance"
+)
+
+type EntryValidationError struct {
+	Step      ValidationStep
+	LineIndex int
+	Err       error
+}
+
+func (e *EntryValidationError) Error() string {
+	if e.LineIndex < 0 {
+		return fmt.Sprintf("entry validation failed at %s: %v", e.Step, e.Err)
+	}
+	return fmt.Sprintf("entry validation failed at %s (line %d): %v", e.Step, e.LineIndex, e.Err)
+}
+
+func (e *EntryValidationError) Unwrap() error {
+	return e.Err
 }
