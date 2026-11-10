@@ -26,6 +26,7 @@ func (b *BaseAccount) Audit() []string {
 type Account struct {
 	BaseAccount
 	Balance        int64
+	LedgerBalance  int64
 	LockedReason   string
 	FailedAttempts int32
 	IsLocked       bool

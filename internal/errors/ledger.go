@@ -3,6 +3,8 @@ package apperrors
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 var (
@@ -75,4 +77,70 @@ func (e *EntryValidationError) Error() string {
 
 func (e *EntryValidationError) Unwrap() error {
 	return e.Err
+}
+
+type EntryDecodeError struct {
+	Err error
+}
+
+func (e *EntryDecodeError) Error() string {
+	var b strings.Builder
+	b.WriteString("decode entry: ")
+	b.WriteString(e.Err.Error())
+	return b.String()
+}
+
+func (e *EntryDecodeError) Unwrap() error {
+	return e.Err
+}
+
+type CurrencyError struct {
+	Code string
+}
+
+func (e *CurrencyError) Error() string {
+	var b strings.Builder
+	b.WriteString("unknown currency code: ")
+	b.WriteString(e.Code)
+	return b.String()
+}
+
+func (e *CurrencyError) Unwrap() error {
+	return ErrUnknownCurrency
+}
+
+type DirectionError struct {
+	Direction string
+}
+
+func (e *DirectionError) Error() string {
+	var b strings.Builder
+	b.WriteString("unknown line direction: ")
+	b.WriteString(e.Direction)
+	return b.String()
+}
+
+func (e *DirectionError) Unwrap() error {
+	return ErrUnknownDirection
+}
+
+type BalanceError struct {
+	CurrencyCode string
+	Debits       int64
+	Credits      int64
+}
+
+func (e *BalanceError) Error() string {
+	var b strings.Builder
+	b.WriteString("entry does not balance for ")
+	b.WriteString(e.CurrencyCode)
+	b.WriteString(": debits=")
+	b.WriteString(strconv.FormatInt(e.Debits, 10))
+	b.WriteString(" credits=")
+	b.WriteString(strconv.FormatInt(e.Credits, 10))
+	return b.String()
+}
+
+func (e *BalanceError) Unwrap() error {
+	return ErrUnbalancedEntry
 }

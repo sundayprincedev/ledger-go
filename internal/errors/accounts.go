@@ -2,7 +2,8 @@ package apperrors
 
 import (
 	"errors"
-	"fmt"
+	"strconv"
+	"strings"
 )
 
 var (
@@ -18,7 +19,13 @@ type InsufficientFundsError struct {
 }
 
 func (e *InsufficientFundsError) Error() string {
-	return fmt.Sprintf("insufficient balance on %s: short by %d units", e.AccountID, e.Deficit)
+	var b strings.Builder
+	b.WriteString("insufficient balance on ")
+	b.WriteString(e.AccountID)
+	b.WriteString(": short by ")
+	b.WriteString(strconv.FormatInt(e.Deficit, 10))
+	b.WriteString(" units")
+	return b.String()
 }
 
 type AccountLockedError struct {
@@ -27,5 +34,10 @@ type AccountLockedError struct {
 }
 
 func (e *AccountLockedError) Error() string {
-	return fmt.Sprintf("account %s locked: %s", e.AccountID, e.Reason)
+	var b strings.Builder
+	b.WriteString("account ")
+	b.WriteString(e.AccountID)
+	b.WriteString(" locked: ")
+	b.WriteString(e.Reason)
+	return b.String()
 }

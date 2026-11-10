@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	apperrors "github.com/sundayprincedev/ledger/internal/errors"
@@ -47,7 +46,7 @@ func (e *Entry) Marshal() ([]byte, error) {
 func EntryFromPayload(payload []byte, timestamp time.Time) (Entry, error) {
 	var p entryPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
-		return Entry{}, fmt.Errorf("decode entry: %w", err)
+		return Entry{}, &apperrors.EntryDecodeError{Err: err}
 	}
 	e := Entry{ID: p.ID, Lines: p.Lines, Timestamp: timestamp}
 	if err := e.Validate(); err != nil {
@@ -82,7 +81,7 @@ func (e *Entry) Validate() error {
 			return &apperrors.EntryValidationError{
 				Step:      apperrors.StepCurrency,
 				LineIndex: i,
-				Err:       fmt.Errorf("%w: %s", apperrors.ErrUnknownCurrency, line.CurrencyCode),
+				Err:       &apperrors.CurrencyError{Code: line.CurrencyCode},
 			}
 		}
 
@@ -104,7 +103,7 @@ func (e *Entry) Validate() error {
 			return &apperrors.EntryValidationError{
 				Step:      apperrors.StepDirection,
 				LineIndex: i,
-				Err:       fmt.Errorf("%w: %s", apperrors.ErrUnknownDirection, line.Direction),
+				Err:       &apperrors.DirectionError{Direction: string(line.Direction)},
 			}
 		}
 		totals[line.CurrencyCode] = t
@@ -115,7 +114,7 @@ func (e *Entry) Validate() error {
 			return &apperrors.EntryValidationError{
 				Step:      apperrors.StepBalance,
 				LineIndex: -1,
-				Err:       fmt.Errorf("%w: %s debits=%d credits=%d", apperrors.ErrUnbalancedEntry, currencyCode, t.Debits, t.Credits),
+				Err:       &apperrors.BalanceError{CurrencyCode: currencyCode, Debits: t.Debits, Credits: t.Credits},
 			}
 		}
 	}

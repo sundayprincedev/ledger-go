@@ -2,7 +2,6 @@ package journal
 
 import (
 	"encoding/binary"
-	"fmt"
 	"hash/crc32"
 	"os"
 	"path/filepath"
@@ -31,24 +30,24 @@ func NewLogWriter(path string) (*LogWriter, error) {
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
-		return nil, fmt.Errorf("open log file: %w", err)
+		return nil, &apperrors.WritePipelineError{Step: apperrors.StepOpenFile, Err: err}
 	}
 
 	dirFile, err := os.Open(dir)
 	if err != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("open parent directory for sync: %w", err)
+		return nil, &apperrors.WritePipelineError{Step: apperrors.StepOpenDir, Err: err}
 	}
 
 	syncErr := dirFile.Sync()
 	closeErr := dirFile.Close()
 	if syncErr != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("sync parent directory: %w", syncErr)
+		return nil, &apperrors.WritePipelineError{Step: apperrors.StepSyncDir, Err: syncErr}
 	}
 	if closeErr != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("close parent directory handle: %w", closeErr)
+		return nil, &apperrors.WritePipelineError{Step: apperrors.StepCloseDirHandle, Err: closeErr}
 	}
 
 	return &LogWriter{file: f}, nil
@@ -81,12 +80,12 @@ func (lw *LogWriter) Append(payload []byte) error {
 
 	if _, err := lw.file.Write(buf); err != nil {
 		lw.poisoned = true
-		return fmt.Errorf("write failed: %w", err)
+		return &apperrors.WritePipelineError{Step: apperrors.StepWriteRecord, Err: err}
 	}
 
 	if err := lw.file.Sync(); err != nil {
 		lw.poisoned = true
-		return fmt.Errorf("sync failed: %w", err)
+		return &apperrors.WritePipelineError{Step: apperrors.StepSyncRecord, Err: err}
 	}
 
 	return nil

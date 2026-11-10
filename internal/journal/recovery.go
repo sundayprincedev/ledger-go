@@ -3,7 +3,6 @@ package journal
 import (
 	"bufio"
 	"encoding/binary"
-	"fmt"
 	"hash/crc32"
 	"io"
 	"os"
@@ -14,7 +13,7 @@ import (
 func RecoverAndClean(path string) ([]RawEntry, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
 	if err != nil {
-		return nil, err
+		return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepOpenFile, Offset: -1, Err: err}
 	}
 	defer file.Close()
 
@@ -22,7 +21,7 @@ func RecoverAndClean(path string) ([]RawEntry, error) {
 
 	stat, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("stat file: %w", err)
+		return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepStat, Offset: -1, Err: err}
 	}
 	fileSize := stat.Size()
 
@@ -36,7 +35,7 @@ func RecoverAndClean(path string) ([]RawEntry, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read header at offset %d: %w", validOffset, err)
+			return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepReadHeader, Offset: validOffset, Err: err}
 		}
 
 		payloadLen := binary.BigEndian.Uint32(headerBuf[0:4])
@@ -48,16 +47,16 @@ func RecoverAndClean(path string) ([]RawEntry, error) {
 		if computedHeaderCRC != storedHeaderCRC {
 			isZeroes, err := isZeroesToEOF(file, validOffset, fileSize)
 			if err != nil {
-				return nil, fmt.Errorf("check tail bytes at offset %d: %w", validOffset, err)
+				return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepCheckTail, Offset: validOffset, Err: err}
 			}
 			if isZeroes {
 				break
 			}
-			return nil, fmt.Errorf("%w at offset %d: bad header CRC", apperrors.ErrCorruptRecord, validOffset)
+			return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepHeaderCRC, Offset: validOffset, Err: apperrors.ErrCorruptRecord}
 		}
 
 		if payloadLen > MaxPayloadSize {
-			return nil, fmt.Errorf("%w at offset %d: payload size %d exceeds max cap", apperrors.ErrCorruptRecord, validOffset, payloadLen)
+			return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepPayloadSize, Offset: validOffset, Err: apperrors.ErrCorruptRecord}
 		}
 
 		recordEndOffset := validOffset + headerSize + int64(payloadLen)
@@ -71,13 +70,13 @@ func RecoverAndClean(path string) ([]RawEntry, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read payload at offset %d: %w", validOffset, err)
+			return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepReadPayload, Offset: validOffset, Err: err}
 		}
 
 		computedPayloadCRC := crc32.ChecksumIEEE(payload)
 		if computedPayloadCRC != storedPayloadCRC {
 			if recordEndOffset < fileSize {
-				return nil, fmt.Errorf("%w at offset %d: payload checksum mismatch", apperrors.ErrCorruptRecord, validOffset)
+				return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepPayloadCRC, Offset: validOffset, Err: apperrors.ErrCorruptRecord}
 			}
 			break
 		}
@@ -91,11 +90,11 @@ func RecoverAndClean(path string) ([]RawEntry, error) {
 	}
 
 	if err := file.Truncate(validOffset); err != nil {
-		return nil, fmt.Errorf("truncate file: %w", err)
+		return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepTruncate, Offset: validOffset, Err: err}
 	}
 
 	if err := file.Sync(); err != nil {
-		return nil, fmt.Errorf("sync truncation to disk: %w", err)
+		return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepSyncTruncate, Offset: validOffset, Err: err}
 	}
 
 	return entries, nil

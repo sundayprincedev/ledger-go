@@ -1,7 +1,8 @@
 package accounts
 
 import (
-	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/sundayprincedev/ledger/internal/money"
 )
@@ -17,12 +18,19 @@ func (s *SavingsAccount) GenerateSummary() string {
 	curr, _ := money.CurrencyExists(s.CurrencyCode)
 	balance := money.DenormalizeAmount(s.Balance, curr)
 	interest := money.DenormalizeAmount(s.InterestEarned, curr)
-	return fmt.Sprintf("Savings Account — %s (ID: %s)\nBalance: %.2f %s | Interest Earned: %.2f %s",
-		s.Name,
-		s.AccountID,
-		balance,
-		curr.Name,
-		interest,
-		curr.Name,
-	)
+
+	var b strings.Builder
+	b.WriteString("Savings Account — ")
+	b.WriteString(s.Name)
+	b.WriteString(" (ID: ")
+	b.WriteString(s.AccountID)
+	b.WriteString(")\nBalance: ")
+	b.WriteString(strconv.FormatFloat(balance, 'f', 2, 64))
+	b.WriteString(" ")
+	b.WriteString(curr.Name)
+	b.WriteString(" | Interest Earned: ")
+	b.WriteString(strconv.FormatFloat(interest, 'f', 2, 64))
+	b.WriteString(" ")
+	b.WriteString(curr.Name)
+	return b.String()
 }
