@@ -44,7 +44,10 @@ func (wp *WorkerPool) runJob(job *Job, errCh chan<- error, resultsCh chan<- JobR
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)
 			n := runtime.Stack(buf, false)
-			errCh <- apperrors.NewWorkerJobErrorWithStack(job.ID, "panic", fmt.Errorf("%v", r), string(buf[:n]))
+			panicErr := fmt.Errorf("%v", r)
+			errCh <- apperrors.NewWorkerJobErrorWithStack(job.ID, "panic", panicErr, string(buf[:n]))
+			job.Transition(StateFailed)
+			resultsCh <- JobResult{JobID: job.ID, Success: false, Err: panicErr}
 		}
 	}()
 
@@ -59,7 +62,7 @@ func (wp *WorkerPool) runJob(job *Job, errCh chan<- error, resultsCh chan<- JobR
 		return
 	}
 
-	jobCtx, cancel := context.WithTimeout(wp.Ctx, job.Timeout)
+	jobCtx, cancel := context.WithTimeout(wp.Ctx, job.timeout())
 	defer cancel()
 
 	err := work(jobCtx, job)

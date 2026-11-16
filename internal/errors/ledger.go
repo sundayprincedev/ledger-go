@@ -17,10 +17,9 @@ var (
 	ErrUnbalancedEntry   = errors.New("entry does not balance")
 	ErrAmountOverflow    = errors.New("amount sum overflows int64")
 
-	ErrJobNotFound              = errors.New("job not found")
-	ErrJobStateCorrupted        = errors.New("job state is not a recognized type")
-	ErrJobNotInFlight           = errors.New("job is not in flight")
-	ErrJobConcurrentStateChange = errors.New("job state changed concurrently")
+	ErrJobNotFound       = errors.New("job not found")
+	ErrJobStateCorrupted = errors.New("job state is not a recognized type")
+	ErrJobNotInFlight    = errors.New("job is not in flight")
 )
 
 type JobError struct {

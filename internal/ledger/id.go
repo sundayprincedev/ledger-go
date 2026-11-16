@@ -11,7 +11,6 @@ type JobState string
 const (
 	StateInFlight  JobState = "in_flight"
 	StateCompleted JobState = "completed"
-	StatePending   JobState = "pending"
 )
 
 type JobIDLookupResult struct {

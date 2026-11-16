@@ -10,7 +10,74 @@ var (
 	ErrAccountInvalidAmount = errors.New("invalid amount")
 	ErrAccountLocked        = errors.New("account locked")
 	ErrAccountNotFound      = errors.New("account not found")
+	ErrAccountExists        = errors.New("account already exists")
+	ErrAccountIDRequired    = errors.New("account id is required")
+	ErrTierLimitsNotFound   = errors.New("no limits defined for tier")
+
+	ErrTransferLimitExceeded = errors.New("amount exceeds the single transfer limit")
+	ErrReceiveLimitExceeded  = errors.New("amount exceeds the single receive limit")
 )
+
+type LimitError struct {
+	AccountID string
+	Amount    int64
+	Limit     int64
+	Err       error
+}
+
+func (e *LimitError) Error() string {
+	var b strings.Builder
+	b.WriteString("account ")
+	b.WriteString(e.AccountID)
+	b.WriteString(": ")
+	b.WriteString(e.Err.Error())
+	b.WriteString(" (amount ")
+	b.WriteString(strconv.FormatInt(e.Amount, 10))
+	b.WriteString(", limit ")
+	b.WriteString(strconv.FormatInt(e.Limit, 10))
+	b.WriteString(")")
+	return b.String()
+}
+
+func (e *LimitError) Unwrap() error {
+	return e.Err
+}
+
+type TierLimitsError struct {
+	AccountID string
+	Tier      int
+}
+
+func (e *TierLimitsError) Error() string {
+	var b strings.Builder
+	b.WriteString("account ")
+	b.WriteString(e.AccountID)
+	b.WriteString(": no limits defined for tier ")
+	b.WriteString(strconv.Itoa(e.Tier))
+	return b.String()
+}
+
+func (e *TierLimitsError) Unwrap() error {
+	return ErrTierLimitsNotFound
+}
+
+type AccountError struct {
+	AccountID string
+	Err       error
+}
+
+func (e *AccountError) Error() string {
+	var b strings.Builder
+	b.WriteString("account ")
+	b.WriteString(e.AccountID)
+	b.WriteString(": ")
+	b.WriteString(e.Err.Error())
+	return b.String()
+}
+
+func (e *AccountError) Unwrap() error {
+	return e.Err
+}
 
 type InsufficientFundsError struct {
 	AccountID       string

@@ -2,6 +2,7 @@ package apperrors
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -9,6 +10,17 @@ import (
 var (
 	ErrInvalidTransition = errors.New("invalid job state transition")
 	ErrStaleJob          = errors.New("job made no progress; owning worker presumed lost")
+
+	ErrJobAlreadyInFlight  = errors.New("job is already in flight")
+	ErrJobAlreadyCompleted = errors.New("job already completed")
+	ErrInvalidPayload      = errors.New("job payload is not the expected type")
+
+	ErrUnknownOpType        = errors.New("unknown operation type")
+	ErrIntentInvalidAmount  = errors.New("intent amount must be positive")
+	ErrIntentMissingAccount = errors.New("intent is missing a required account")
+	ErrIntentSameAccount    = errors.New("intent moves money to the same account")
+	ErrIntentNoRecipients   = errors.New("bulk intent has no recipients")
+	ErrIntentInvalidWeight  = errors.New("recipient weight must be positive")
 )
 
 type WorkerJobError struct {
@@ -53,6 +65,78 @@ func NewWorkerJobErrorWithStack(jobID, reason string, err error, stack string) *
 		Stack:     stack,
 		Timestamp: time.Now(),
 	}
+}
+
+type PipelineStep string
+
+const (
+	PipelineStepRegister PipelineStep = "register"
+	PipelineStepIntent   PipelineStep = "intent"
+	PipelineStepKYC      PipelineStep = "kyc"
+	PipelineStepComplete PipelineStep = "complete"
+)
+
+type IntentStep string
+
+const (
+	IntentStepType       IntentStep = "type"
+	IntentStepAmount     IntentStep = "amount"
+	IntentStepCurrency   IntentStep = "currency"
+	IntentStepAccounts   IntentStep = "accounts"
+	IntentStepRecipients IntentStep = "recipients"
+)
+
+type IntentValidationError struct {
+	Step           IntentStep
+	RecipientIndex int
+	Err            error
+}
+
+func (e *IntentValidationError) Error() string {
+	if e.RecipientIndex < 0 {
+		return fmt.Sprintf("intent validation failed at %s: %v", e.Step, e.Err)
+	}
+	return fmt.Sprintf("intent validation failed at %s (recipient %d): %v", e.Step, e.RecipientIndex, e.Err)
+}
+
+func (e *IntentValidationError) Unwrap() error {
+	return e.Err
+}
+
+type OpTypeError struct {
+	Type string
+}
+
+func (e *OpTypeError) Error() string {
+	var b strings.Builder
+	b.WriteString("unknown operation type: ")
+	b.WriteString(e.Type)
+	return b.String()
+}
+
+func (e *OpTypeError) Unwrap() error {
+	return ErrUnknownOpType
+}
+
+type JobPipelineError struct {
+	JobID string
+	Step  PipelineStep
+	Err   error
+}
+
+func (e *JobPipelineError) Error() string {
+	var b strings.Builder
+	b.WriteString("job ")
+	b.WriteString(e.JobID)
+	b.WriteString(": pipeline failed at ")
+	b.WriteString(string(e.Step))
+	b.WriteString(": ")
+	b.WriteString(e.Err.Error())
+	return b.String()
+}
+
+func (e *JobPipelineError) Unwrap() error {
+	return e.Err
 }
 
 type TransitionError struct {

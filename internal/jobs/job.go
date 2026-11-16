@@ -35,6 +35,8 @@ func (s JobState) String() string {
 	}
 }
 
+const DefaultJobTimeout = 5 * time.Second
+
 type Job struct {
 	ID        string
 	Payload   any
@@ -44,6 +46,13 @@ type Job struct {
 	Err       error
 	CreatedAt time.Time
 	UpdatedAt atomic.Int64
+}
+
+func (j *Job) timeout() time.Duration {
+	if j.Timeout <= 0 {
+		return DefaultJobTimeout
+	}
+	return j.Timeout
 }
 
 type JobResult struct {
