@@ -90,19 +90,117 @@ func TestAccountStoreLookupUnknownAccount(t *testing.T) {
 
 func TestAccountStoreConcurrentAccess(t *testing.T) {
 	store := NewAccountStore()
+	if err := store.AddHouse(&accounts.House{Account: base("HOUSE-NGN", "NGN")}); err != nil {
+		t.Fatalf("seeding house: %v", err)
+	}
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
-		id := "HOUSE-" + strconv.Itoa(i)
-		wg.Add(2)
+		id := "CUR-" + strconv.Itoa(i)
+		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			_ = store.AddHouse(&accounts.House{Account: base(id, "NGN")})
+			_ = store.AddCurrent(&accounts.CurrentAccount{Account: base(id, "NGN")})
 		}()
 		go func() {
 			defer wg.Done()
 			_, _ = store.Lookup(id)
 		}()
+		go func() {
+			defer wg.Done()
+			_, _ = store.FindByKind(accounts.KindHouse, "NGN")
+		}()
 	}
 	wg.Wait()
+}
+
+func TestAccountStoreFindByKind(t *testing.T) {
+	store := NewAccountStore()
+	adds := []error{
+		store.AddHouse(&accounts.House{Account: base("HOUSE-NGN", "NGN")}),
+		store.AddHouse(&accounts.House{Account: base("HOUSE-USD", "USD")}),
+		store.AddSuspense(&accounts.Suspense{Account: base("SUSPENSE-NGN", "NGN")}),
+	}
+	for i, err := range adds {
+		if err != nil {
+			t.Fatalf("add %d failed: %v", i, err)
+		}
+	}
+
+	tests := []struct {
+		kind     accounts.Kind
+		currency string
+		wantID   string
+	}{
+		{accounts.KindHouse, "NGN", "HOUSE-NGN"},
+		{accounts.KindHouse, "USD", "HOUSE-USD"},
+		{accounts.KindSuspense, "NGN", "SUSPENSE-NGN"},
+	}
+	for _, tc := range tests {
+		got, err := store.FindByKind(tc.kind, tc.currency)
+		if err != nil {
+			t.Fatalf("FindByKind(%s, %s): %v", tc.kind, tc.currency, err)
+		}
+		if got.ID != tc.wantID || got.Kind != tc.kind || got.CurrencyCode != tc.currency {
+			t.Fatalf("FindByKind(%s, %s): got %+v, want id %s", tc.kind, tc.currency, got, tc.wantID)
+		}
+	}
+}
+
+func TestAccountStoreFindByKindMisses(t *testing.T) {
+	store := NewAccountStore()
+	if err := store.AddHouse(&accounts.House{Account: base("HOUSE-NGN", "NGN")}); err != nil {
+		t.Fatalf("seeding house: %v", err)
+	}
+	if err := store.AddCurrent(&accounts.CurrentAccount{Account: base("CUR-001", "NGN")}); err != nil {
+		t.Fatalf("seeding current: %v", err)
+	}
+
+	misses := []struct {
+		name     string
+		kind     accounts.Kind
+		currency string
+	}{
+		{"no suspense account at all", accounts.KindSuspense, "NGN"},
+		{"no house account in that currency", accounts.KindHouse, "GBP"},
+		{"customer kinds are not findable by kind", accounts.KindCustomerCurrent, "NGN"},
+	}
+	for _, tc := range misses {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := store.FindByKind(tc.kind, tc.currency)
+			if !errors.Is(err, apperrors.ErrNoAccountForKind) {
+				t.Fatalf("expected ErrNoAccountForKind, got: %v", err)
+			}
+
+			var kindErr *apperrors.KindError
+			if !errors.As(err, &kindErr) || kindErr.Kind != string(tc.kind) || kindErr.CurrencyCode != tc.currency {
+				t.Fatalf("expected a KindError carrying kind and currency, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestAccountStoreRejectsSecondSystemAccountPerCurrency(t *testing.T) {
+	store := NewAccountStore()
+	if err := store.AddHouse(&accounts.House{Account: base("HOUSE-NGN", "NGN")}); err != nil {
+		t.Fatalf("first house: %v", err)
+	}
+
+	err := store.AddHouse(&accounts.House{Account: base("HOUSE-NGN-2", "NGN")})
+	if !errors.Is(err, apperrors.ErrSystemAccountExists) {
+		t.Fatalf("expected ErrSystemAccountExists, got: %v", err)
+	}
+
+	if _, err := store.Lookup("HOUSE-NGN-2"); !errors.Is(err, apperrors.ErrAccountNotFound) {
+		t.Fatalf("a rejected account must not be stored, got: %v", err)
+	}
+
+	found, err := store.FindByKind(accounts.KindHouse, "NGN")
+	if err != nil || found.ID != "HOUSE-NGN" {
+		t.Fatalf("the original house account must stay findable, got %+v (err: %v)", found, err)
+	}
+
+	if err := store.AddSuspense(&accounts.Suspense{Account: base("SUSPENSE-NGN", "NGN")}); err != nil {
+		t.Fatalf("a suspense account in the same currency is a different kind and must be allowed: %v", err)
+	}
 }

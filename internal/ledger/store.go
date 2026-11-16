@@ -15,13 +15,26 @@ type AccountProfile struct {
 	Tier         constants.KYCTier
 }
 
+type systemKey struct {
+	kind         accounts.Kind
+	currencyCode string
+}
+
 type AccountStore struct {
 	mu       sync.RWMutex
 	profiles map[string]AccountProfile
+	system   map[systemKey]string
 }
 
 func NewAccountStore() *AccountStore {
-	return &AccountStore{profiles: make(map[string]AccountProfile)}
+	return &AccountStore{
+		profiles: make(map[string]AccountProfile),
+		system:   make(map[systemKey]string),
+	}
+}
+
+func isSystemKind(kind accounts.Kind) bool {
+	return kind == accounts.KindHouse || kind == accounts.KindSuspense
 }
 
 func (s *AccountStore) AddCurrent(a *accounts.CurrentAccount) error {
@@ -78,8 +91,28 @@ func (s *AccountStore) add(p AccountProfile) error {
 	if _, exists := s.profiles[p.ID]; exists {
 		return &apperrors.AccountError{AccountID: p.ID, Err: apperrors.ErrAccountExists}
 	}
+
+	if isSystemKind(p.Kind) {
+		key := systemKey{kind: p.Kind, currencyCode: p.CurrencyCode}
+		if _, taken := s.system[key]; taken {
+			return &apperrors.KindError{Kind: string(p.Kind), CurrencyCode: p.CurrencyCode, Err: apperrors.ErrSystemAccountExists}
+		}
+		s.system[key] = p.ID
+	}
+
 	s.profiles[p.ID] = p
 	return nil
+}
+
+func (s *AccountStore) FindByKind(kind accounts.Kind, currencyCode string) (AccountProfile, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	id, ok := s.system[systemKey{kind: kind, currencyCode: currencyCode}]
+	if !ok {
+		return AccountProfile{}, &apperrors.KindError{Kind: string(kind), CurrencyCode: currencyCode, Err: apperrors.ErrNoAccountForKind}
+	}
+	return s.profiles[id], nil
 }
 
 func (s *AccountStore) Lookup(id string) (AccountProfile, error) {

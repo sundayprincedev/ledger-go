@@ -16,7 +16,31 @@ var (
 
 	ErrTransferLimitExceeded = errors.New("amount exceeds the single transfer limit")
 	ErrReceiveLimitExceeded  = errors.New("amount exceeds the single receive limit")
+
+	ErrNoAccountForKind    = errors.New("no account of this kind for the currency")
+	ErrSystemAccountExists = errors.New("a system account of this kind already exists for the currency")
 )
+
+type KindError struct {
+	Kind         string
+	CurrencyCode string
+	Err          error
+}
+
+func (e *KindError) Error() string {
+	var b strings.Builder
+	b.WriteString("kind ")
+	b.WriteString(e.Kind)
+	b.WriteString(" in ")
+	b.WriteString(e.CurrencyCode)
+	b.WriteString(": ")
+	b.WriteString(e.Err.Error())
+	return b.String()
+}
+
+func (e *KindError) Unwrap() error {
+	return e.Err
+}
 
 type LimitError struct {
 	AccountID string

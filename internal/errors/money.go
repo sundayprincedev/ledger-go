@@ -12,7 +12,34 @@ var (
 	ErrAllocateInvalidWeight   = errors.New("allocation weight must be between zero and the full weight")
 	ErrAllocateWeightsDoNotSum = errors.New("allocation weights do not sum to the whole")
 	ErrAllocateOverflow        = errors.New("allocation overflows int64")
+
+	ErrSplitInvalidAmount = errors.New("split amount must be positive")
+	ErrSplitOverflow      = errors.New("split overflows int64")
+	ErrSplitMismatch      = errors.New("split shares do not add up to the amount")
 )
+
+type SplitMismatchError struct {
+	Amount   int64
+	House    int64
+	Receiver int64
+}
+
+func (e *SplitMismatchError) Error() string {
+	var b strings.Builder
+	b.WriteString("split of ")
+	b.WriteString(strconv.FormatInt(e.Amount, 10))
+	b.WriteString(" gave house ")
+	b.WriteString(strconv.FormatInt(e.House, 10))
+	b.WriteString(" and receiver ")
+	b.WriteString(strconv.FormatInt(e.Receiver, 10))
+	b.WriteString(": ")
+	b.WriteString(ErrSplitMismatch.Error())
+	return b.String()
+}
+
+func (e *SplitMismatchError) Unwrap() error {
+	return ErrSplitMismatch
+}
 
 type WeightError struct {
 	Index  int
