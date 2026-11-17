@@ -16,6 +16,7 @@ var (
 	ErrInvalidPayload      = errors.New("job payload is not the expected type")
 
 	ErrUnknownOpType        = errors.New("unknown operation type")
+	ErrOpTypeNotSupported   = errors.New("operation type is not supported yet")
 	ErrIntentInvalidAmount  = errors.New("intent amount must be positive")
 	ErrIntentMissingAccount = errors.New("intent is missing a required account")
 	ErrIntentSameAccount    = errors.New("intent moves money to the same account")
@@ -70,10 +71,16 @@ func NewWorkerJobErrorWithStack(jobID, reason string, err error, stack string) *
 type PipelineStep string
 
 const (
-	PipelineStepRegister PipelineStep = "register"
-	PipelineStepIntent   PipelineStep = "intent"
-	PipelineStepKYC      PipelineStep = "kyc"
-	PipelineStepComplete PipelineStep = "complete"
+	PipelineStepRegister      PipelineStep = "register"
+	PipelineStepIntent        PipelineStep = "intent"
+	PipelineStepCurrency      PipelineStep = "currency"
+	PipelineStepKYC           PipelineStep = "kyc"
+	PipelineStepDispatch      PipelineStep = "dispatch"
+	PipelineStepSplit         PipelineStep = "split"
+	PipelineStepBuildEntry    PipelineStep = "build_entry"
+	PipelineStepValidateEntry PipelineStep = "validate_entry"
+	PipelineStepMarshal       PipelineStep = "marshal"
+	PipelineStepComplete      PipelineStep = "complete"
 )
 
 type IntentStep string
@@ -116,6 +123,22 @@ func (e *OpTypeError) Error() string {
 
 func (e *OpTypeError) Unwrap() error {
 	return ErrUnknownOpType
+}
+
+type UnsupportedOpTypeError struct {
+	Type string
+}
+
+func (e *UnsupportedOpTypeError) Error() string {
+	var b strings.Builder
+	b.WriteString(ErrOpTypeNotSupported.Error())
+	b.WriteString(": ")
+	b.WriteString(e.Type)
+	return b.String()
+}
+
+func (e *UnsupportedOpTypeError) Unwrap() error {
+	return ErrOpTypeNotSupported
 }
 
 type JobPipelineError struct {

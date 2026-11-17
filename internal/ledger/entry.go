@@ -40,7 +40,11 @@ type entryPayload struct {
 }
 
 func (e *Entry) Marshal() ([]byte, error) {
-	return json.Marshal(entryPayload{ID: e.ID, Lines: e.Lines})
+	payload, err := json.Marshal(entryPayload{ID: e.ID, Lines: e.Lines})
+	if err != nil {
+		return nil, &apperrors.EntryEncodeError{Err: err}
+	}
+	return payload, nil
 }
 
 func EntryFromPayload(payload []byte, timestamp time.Time) (Entry, error) {

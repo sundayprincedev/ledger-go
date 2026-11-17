@@ -5,6 +5,7 @@ import (
 
 	apperrors "github.com/sundayprincedev/ledger/internal/errors"
 	"github.com/sundayprincedev/ledger/internal/ledger"
+	"github.com/sundayprincedev/ledger/internal/money"
 )
 
 type WriteWorker struct {
@@ -65,15 +66,63 @@ func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledge
 
 	claimed = true
 
+	if intent.Type == OpBulkTransfer {
+		// TODO: bulk path: its own currency check, Allocate, KYC on each share, then build the lines
+	}
+
+	if intent.Type != OpSingleTransfer {
+		return &apperrors.JobPipelineError{
+			JobID: jobID,
+			Step:  apperrors.PipelineStepDispatch,
+			Err:   &apperrors.UnsupportedOpTypeError{Type: string(intent.Type)},
+		}
+	}
+
+	if currCheckErrorIntent := AccountRegistry.CheckCurrency(intent.FromAccountID, intent.CurrencyCode); currCheckErrorIntent != nil {
+		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepCurrency, Err: currCheckErrorIntent}
+	}
+
+	if currCheckErrorReceiver := AccountRegistry.CheckCurrency(intent.ToAccountID, intent.CurrencyCode); currCheckErrorReceiver != nil {
+		//TODO: Run currency conversion pipeline so currencies match (with roundrule)
+		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepCurrency, Err: currCheckErrorReceiver}
+	}
+
 	if err := kycChecker(AccountRegistry, intent); err != nil {
 		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepKYC, Err: err}
 	}
 
-	if intent.Type == OpBulkTransfer {
-
+	splitCut, splitErr := money.SplitHouseCut(intent.Amount)
+	if splitErr != nil {
+		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepSplit, Err: splitErr}
 	}
 
-	
+	if len(splitCut) != 2 {
+		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepSplit, Err: apperrors.ErrSplitShareCount}
+	}
+
+	if err := checkContext(pipelineCtx, jobID, apperrors.PipelineStepBuildEntry); err != nil {
+		return err
+	}
+
+	mainEntry, buildErr := buildDirectEntry(AccountRegistry, jobID, intent, splitCut)
+	if buildErr != nil {
+		return buildErr
+	}
+
+	if entryValidationErr := mainEntry.Validate(); entryValidationErr != nil {
+		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepValidateEntry, Err: entryValidationErr}
+	}
+
+	if err := checkContext(pipelineCtx, jobID, apperrors.PipelineStepMarshal); err != nil {
+		return err
+	}
+
+	payload, marshalErr := mainEntry.Marshal()
+	if marshalErr != nil {
+		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepMarshal, Err: marshalErr}
+	}
+
+	_ = payload //tmp
 
 	if err := IDRegistry.Complete(jobID); err != nil {
 		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepComplete, Err: err}

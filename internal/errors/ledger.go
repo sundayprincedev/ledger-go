@@ -93,6 +93,21 @@ func (e *EntryDecodeError) Unwrap() error {
 	return e.Err
 }
 
+type EntryEncodeError struct {
+	Err error
+}
+
+func (e *EntryEncodeError) Error() string {
+	var b strings.Builder
+	b.WriteString("encode entry: ")
+	b.WriteString(e.Err.Error())
+	return b.String()
+}
+
+func (e *EntryEncodeError) Unwrap() error {
+	return e.Err
+}
+
 type CurrencyError struct {
 	Code string
 }

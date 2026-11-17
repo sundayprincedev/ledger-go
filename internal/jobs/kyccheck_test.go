@@ -27,7 +27,12 @@ func testStore(t *testing.T) *ledger.AccountStore {
 		store.AddCurrent(current("CUR-003", constants.TierThree)),
 		store.AddCurrent(current("CUR-004", constants.TierOne)),
 		store.AddCurrent(current("CUR-009", 0)),
+		store.AddCurrent(&accounts.CurrentAccount{
+			Account:  accounts.Account{BaseAccount: accounts.BaseAccount{AccountID: "CUR-005", CurrencyCode: "USD"}},
+			Customer: accounts.Customer{Tier: constants.TierTwo},
+		}),
 		store.AddHouse(&accounts.House{Account: accounts.Account{BaseAccount: accounts.BaseAccount{AccountID: "HOUSE-NGN", CurrencyCode: "NGN"}}}),
+		store.AddSuspense(&accounts.Suspense{Account: accounts.Account{BaseAccount: accounts.BaseAccount{AccountID: "SUSPENSE-NGN", CurrencyCode: "NGN"}}}),
 	}
 	for _, err := range adds {
 		if err != nil {

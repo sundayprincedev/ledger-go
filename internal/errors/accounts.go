@@ -19,7 +19,33 @@ var (
 
 	ErrNoAccountForKind    = errors.New("no account of this kind for the currency")
 	ErrSystemAccountExists = errors.New("a system account of this kind already exists for the currency")
+
+	ErrCurrencyMismatch = errors.New("account currency does not match the amount's currency")
 )
+
+type CurrencyMismatchError struct {
+	AccountID       string
+	AccountCurrency string
+	AmountCurrency  string
+}
+
+func (e *CurrencyMismatchError) Error() string {
+	var b strings.Builder
+	b.WriteString("account ")
+	b.WriteString(e.AccountID)
+	b.WriteString(": ")
+	b.WriteString(ErrCurrencyMismatch.Error())
+	b.WriteString(" (holds ")
+	b.WriteString(e.AccountCurrency)
+	b.WriteString(", amount in ")
+	b.WriteString(e.AmountCurrency)
+	b.WriteString(")")
+	return b.String()
+}
+
+func (e *CurrencyMismatchError) Unwrap() error {
+	return ErrCurrencyMismatch
+}
 
 type KindError struct {
 	Kind         string

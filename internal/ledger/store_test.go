@@ -180,6 +180,31 @@ func TestAccountStoreFindByKindMisses(t *testing.T) {
 	}
 }
 
+func TestAccountStoreCheckCurrency(t *testing.T) {
+	store := NewAccountStore()
+	if err := store.AddCurrent(&accounts.CurrentAccount{Account: base("CUR-001", "NGN")}); err != nil {
+		t.Fatalf("seeding account: %v", err)
+	}
+
+	if err := store.CheckCurrency("CUR-001", "NGN"); err != nil {
+		t.Fatalf("a matching currency must pass, got: %v", err)
+	}
+
+	err := store.CheckCurrency("CUR-001", "USD")
+	if !errors.Is(err, apperrors.ErrCurrencyMismatch) {
+		t.Fatalf("expected ErrCurrencyMismatch, got: %v", err)
+	}
+
+	var mismatch *apperrors.CurrencyMismatchError
+	if !errors.As(err, &mismatch) || mismatch.AccountID != "CUR-001" || mismatch.AccountCurrency != "NGN" || mismatch.AmountCurrency != "USD" {
+		t.Fatalf("expected the mismatch to carry the account and both currencies, got: %v", err)
+	}
+
+	if err := store.CheckCurrency("NOPE", "NGN"); !errors.Is(err, apperrors.ErrAccountNotFound) {
+		t.Fatalf("an unknown account must report not found, got: %v", err)
+	}
+}
+
 func TestAccountStoreRejectsSecondSystemAccountPerCurrency(t *testing.T) {
 	store := NewAccountStore()
 	if err := store.AddHouse(&accounts.House{Account: base("HOUSE-NGN", "NGN")}); err != nil {

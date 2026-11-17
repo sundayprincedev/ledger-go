@@ -115,6 +115,21 @@ func (s *AccountStore) FindByKind(kind accounts.Kind, currencyCode string) (Acco
 	return s.profiles[id], nil
 }
 
+func (s *AccountStore) CheckCurrency(accountID, currencyCode string) error {
+	profile, err := s.Lookup(accountID)
+	if err != nil {
+		return err
+	}
+	if profile.CurrencyCode != currencyCode {
+		return &apperrors.CurrencyMismatchError{
+			AccountID:       accountID,
+			AccountCurrency: profile.CurrencyCode,
+			AmountCurrency:  currencyCode,
+		}
+	}
+	return nil
+}
+
 func (s *AccountStore) Lookup(id string) (AccountProfile, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
