@@ -10,6 +10,7 @@ type JobState int32
 const (
 	StatePending JobState = iota
 	StateRunning
+	StateOutcomePending
 	StateCommitted
 	StateCompleted
 	StateFailed
@@ -22,6 +23,8 @@ func (s JobState) String() string {
 		return "pending"
 	case StateRunning:
 		return "running"
+	case StateOutcomePending:
+		return "outcome_pending"
 	case StateCommitted:
 		return "committed"
 	case StateCompleted:

@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -67,11 +68,16 @@ func (wp *WorkerPool) runJob(job *Job, errCh chan<- error, resultsCh chan<- JobR
 
 	err := work(jobCtx, job)
 	if err != nil {
-		from = JobState(job.State.Load())
-		if !job.Transition(StateFailed) {
-			errCh <- apperrors.NewTransitionError(job.ID, from.String(), StateFailed.String(), "unexpected state", nil)
+		target, reason := StateFailed, "job failed"
+		if errors.Is(err, apperrors.ErrOutcomeUnknown) {
+			target, reason = StateOutcomePending, "outcome unknown"
 		}
-		errCh <- apperrors.NewWorkerJobError(job.ID, "job failed", err)
+
+		from = JobState(job.State.Load())
+		if !job.Transition(target) {
+			errCh <- apperrors.NewTransitionError(job.ID, from.String(), target.String(), "unexpected state", nil)
+		}
+		errCh <- apperrors.NewWorkerJobError(job.ID, reason, err)
 		resultsCh <- JobResult{JobID: job.ID, Success: false, Err: err}
 		return
 	}

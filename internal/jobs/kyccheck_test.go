@@ -141,7 +141,7 @@ func TestKYCFailureFailsJobAndReleasesClaim(t *testing.T) {
 	errCh := make(chan error, 2)
 	resultsCh := make(chan JobResult, 1)
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t)))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), testWriter(t)))
 
 	over := testIntent()
 	over.FromAccountID, over.ToAccountID = "CUR-004", "CUR-001"

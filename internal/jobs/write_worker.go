@@ -16,22 +16,21 @@ func NewWriteWorker(parent context.Context) *WriteWorker {
 	return &WriteWorker{WorkerPool: NewWorkerPool(parent)}
 }
 
-func (wr *WriteWorker) WriteWork(registry *ledger.IDRegistry, store *ledger.AccountStore) WorkFunc {
+func (wr *WriteWorker) WriteWork(registry *ledger.IDRegistry, store *ledger.AccountStore, writer ledger.Journal) WorkFunc {
 	return func(ctx context.Context, job *Job) error {
 		intent, ok := job.Payload.(Intent)
 		if !ok {
 			return apperrors.NewWorkerJobError(job.ID, "invalid payload", apperrors.ErrInvalidPayload)
 		}
-		return wr.StartWritePipeline(ctx, registry, store, job.ID, intent)
+		return wr.StartWritePipeline(ctx, registry, store, writer, job.ID, intent)
 	}
 }
 
-func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledger.IDRegistry, AccountRegistry *ledger.AccountStore, jobID string, intent Intent) error {
+func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledger.IDRegistry, AccountRegistry *ledger.AccountStore, Writer ledger.Journal, jobID string, intent Intent) error {
 	var claimed bool
 
 	defer func() {
 		if claimed {
-			// TODO: once the journal append exists, release only if the entry was not committed
 			_ = IDRegistry.Release(jobID)
 		}
 	}()
@@ -122,12 +121,31 @@ func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledge
 		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepMarshal, Err: marshalErr}
 	}
 
-	_ = payload //tmp
+	if err := checkContext(pipelineCtx, jobID, apperrors.PipelineStepAppend); err != nil {
+		return err
+	}
+
+	if appendError := Writer.Append(payload); appendError != nil {
+		recoveryRequired, outcomeUnknown := classifyAppendError(appendError)
+		if outcomeUnknown {
+			claimed = false
+		}
+		return &apperrors.JobPipelineError{
+			JobID: jobID,
+			Step:  apperrors.PipelineStepAppend,
+			Err: &apperrors.AppendFailureError{
+				Err:              appendError,
+				RecoveryRequired: recoveryRequired,
+				OutcomeUnknown:   outcomeUnknown,
+			},
+		}
+	}
+
+	claimed = false
 
 	if err := IDRegistry.Complete(jobID); err != nil {
 		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepComplete, Err: err}
 	}
-	claimed = false
 
 	return nil
 }

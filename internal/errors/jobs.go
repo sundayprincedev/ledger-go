@@ -80,6 +80,7 @@ const (
 	PipelineStepBuildEntry    PipelineStep = "build_entry"
 	PipelineStepValidateEntry PipelineStep = "validate_entry"
 	PipelineStepMarshal       PipelineStep = "marshal"
+	PipelineStepAppend        PipelineStep = "append"
 	PipelineStepComplete      PipelineStep = "complete"
 )
 
