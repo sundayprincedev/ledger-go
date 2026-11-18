@@ -125,8 +125,9 @@
       "note": "cash deposit"
     },
     {
-      "type": "withdraw",
-      "account_id": "CUR-001",
+      "type": "transfer",
+      "from_account_id": "CUR-001",
+      "to_account_id": "CUR-004",
       "currency": "NGN",
       "amount": 200000
     },
@@ -191,8 +192,9 @@
       "amount": 50000
     },
     {
-      "type": "withdraw",
-      "account_id": "CUR-003",
+      "type": "transfer",
+      "from_account_id": "CUR-003",
+      "to_account_id": "SAV-003",
       "currency": "GBP",
       "amount": 70000
     },

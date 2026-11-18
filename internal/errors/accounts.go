@@ -21,6 +21,8 @@ var (
 	ErrSystemAccountExists = errors.New("a system account of this kind already exists for the currency")
 
 	ErrCurrencyMismatch = errors.New("account currency does not match the amount's currency")
+
+	ErrUnknownAccountKind = errors.New("unknown account kind")
 )
 
 type CurrencyMismatchError struct {

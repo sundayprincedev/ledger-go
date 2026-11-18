@@ -21,9 +21,10 @@ Reach Me: sundayprincedev@gmail.com
 ```bash
 go build ./...
 go test ./...
+go run ./cmd/ledger -journal /tmp/ledger.log
 ```
 
-No CLI yet — `cmd/ledger/main.go` is still a stub. `ledger.Open`/`Post`, the thing that actually replays the journal and applies entries to balances, hasn't been written.
+`cmd/ledger` loads the seed, builds the stores, turns the seeded transfers into jobs, and runs them through the write pipeline with one write worker. Use a fresh `-journal` path for each run: startup recovery and replay aren't written yet, so running again against the same journal appends the same jobs a second time. SIGTERM and SIGINT stop new work and give what is already running 4 seconds to finish before it is cancelled; a second signal exits at once.
 
 ## Design
 
