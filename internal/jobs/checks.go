@@ -12,3 +12,10 @@ func checkContext(ctx context.Context, jobID string, step apperrors.PipelineStep
 	}
 	return nil
 }
+
+func checkReadContext(ctx context.Context, index int) error {
+	if err := ctx.Err(); err != nil {
+		return &apperrors.ReadPipelineError{Step: apperrors.ReadStepContext, Index: index, Err: err}
+	}
+	return nil
+}

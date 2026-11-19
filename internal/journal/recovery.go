@@ -3,6 +3,7 @@ package journal
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"hash/crc32"
 	"io"
 	"os"
@@ -12,6 +13,9 @@ import (
 
 func RecoverAndClean(path string) ([]RawEntry, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, &apperrors.RecoveryPipelineError{Step: apperrors.RecoverStepOpenFile, Offset: -1, Err: err}
 	}

@@ -87,3 +87,18 @@ func TestRecoverTruncatesTornTail(t *testing.T) {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 }
+
+func TestRecoverAndCleanTreatsAMissingFileAsEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "never-written.log")
+
+	entries, err := RecoverAndClean(path)
+	if err != nil {
+		t.Fatalf("a journal that does not exist yet is an empty journal, got: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected no entries, got %d", len(entries))
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("recovery must not create the file (err: %v)", err)
+	}
+}

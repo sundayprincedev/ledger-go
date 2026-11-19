@@ -104,3 +104,55 @@ func (e *RecoveryPipelineError) Error() string {
 func (e *RecoveryPipelineError) Unwrap() error {
 	return e.Err
 }
+
+type ReadPipelineStep string
+
+const (
+	ReadStepRecover  ReadPipelineStep = "recover"
+	ReadStepContext  ReadPipelineStep = "context"
+	ReadStepDecode   ReadPipelineStep = "decode"
+	ReadStepRegister ReadPipelineStep = "register"
+)
+
+type ReadPipelineError struct {
+	Step    ReadPipelineStep
+	Index   int
+	EntryID string
+	Err     error
+}
+
+func (e *ReadPipelineError) Error() string {
+	var b strings.Builder
+	b.WriteString("startup read failed at ")
+	b.WriteString(string(e.Step))
+	if e.Index >= 0 {
+		b.WriteString(fmt.Sprintf(" (record %d", e.Index))
+		if e.EntryID != "" {
+			b.WriteString(", entry ")
+			b.WriteString(e.EntryID)
+		}
+		b.WriteString(")")
+	}
+	b.WriteString(": ")
+	b.WriteString(e.Err.Error())
+	return b.String()
+}
+
+func (e *ReadPipelineError) Unwrap() error {
+	return e.Err
+}
+
+var ErrDuplicateJournalEntry = errors.New("entry appears more than once in the journal")
+
+type DuplicateJournalEntryError struct {
+	EntryID string
+	Index   int
+}
+
+func (e *DuplicateJournalEntryError) Error() string {
+	return fmt.Sprintf("entry %s at record %d is a duplicate of an earlier record", e.EntryID, e.Index)
+}
+
+func (e *DuplicateJournalEntryError) Unwrap() error {
+	return ErrDuplicateJournalEntry
+}
