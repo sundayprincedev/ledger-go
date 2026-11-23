@@ -39,12 +39,15 @@ func StartReadPipeline(ctx context.Context, journalPath string, registry *ledger
 			return result, &apperrors.ReadPipelineError{Step: apperrors.ReadStepDecode, Index: i, Err: entryfrompayloadErr}
 		}
 
-		_ = cleanEntry
+		if registry.SeedCompleted(cleanEntry.ID) {
+			result.Duplicates = append(result.Duplicates, &apperrors.DuplicateJournalEntryError{EntryID: cleanEntry.ID, Index: i})
+			continue
+		}
+
+		result.Registered++
 	}
 
-	// TODO register: registry.SeedCompleted(entry.ID); duplicate -> append DuplicateJournalEntryError and keep going, never stop
+	result.Recovered = len(recoveryEntries)
 
-	_ = journalPath
-	_ = registry
 	return result, nil
 }

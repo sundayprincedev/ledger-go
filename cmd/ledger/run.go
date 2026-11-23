@@ -31,6 +31,7 @@ type tally struct {
 }
 
 type summary struct {
+	replay  jobs.ReplayResult
 	sent    int
 	tally   tally
 	skipped map[string]int
@@ -55,6 +56,16 @@ func run(ctx context.Context, cfg config, out io.Writer) (summary, error) {
 		len(seed.Accounts), len(seed.Operations), len(intents), describeSkipped(skipped))
 
 	registry := ledger.NewIDRegistry()
+
+	replay, err := jobs.StartReadPipeline(ctx, cfg.journalPath, registry)
+	if err != nil {
+		return summary{}, err
+	}
+	logger.Printf("replayed %d journal entries: %d registered, %d duplicates",
+		replay.Recovered, replay.Registered, len(replay.Duplicates))
+	for _, duplicate := range replay.Duplicates {
+		logger.Printf("warning  %v", duplicate)
+	}
 
 	file := journal.Open(cfg.journalPath)
 	defer func() {
@@ -94,7 +105,7 @@ func run(ctx context.Context, cfg config, out io.Writer) (summary, error) {
 	close(errCh)
 	close(resultsCh)
 
-	result := summary{sent: <-sentCh, tally: collected(), skipped: skipped, forced: forced}
+	result := summary{replay: replay, sent: <-sentCh, tally: collected(), skipped: skipped, forced: forced}
 	logger.Printf("sent %d: %d ok, %d failed, %d outcome pending",
 		result.sent, result.tally.succeeded, result.tally.failed, result.tally.outcomePending)
 

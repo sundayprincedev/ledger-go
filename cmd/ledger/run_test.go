@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,22 +72,52 @@ func TestRunEndToEnd(t *testing.T) {
 	}
 }
 
-func TestRunStopsFeedingOnceTheContextIsCancelled(t *testing.T) {
+func TestRunAbortsStartupWhenTheContextIsAlreadyCancelled(t *testing.T) {
 	cfg := testConfig(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	var out bytes.Buffer
-	result, err := run(ctx, cfg, &out)
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-
-	if result.sent != 0 {
-		t.Fatalf("no job should be sent after a signal, got %d", result.sent)
+	if _, err := run(ctx, cfg, &out); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected a cancellation error, got %v", err)
 	}
 	if _, err := os.Stat(cfg.journalPath); !os.IsNotExist(err) {
 		t.Fatalf("nothing was appended, so the journal file should not exist (err: %v)", err)
+	}
+}
+
+func TestRunReplaysTheJournalSoARerunWritesNothingTwice(t *testing.T) {
+	cfg := testConfig(t)
+
+	first, err := run(context.Background(), cfg, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if first.replay.Recovered != 0 || first.tally.succeeded != 5 {
+		t.Fatalf("unexpected first run: %+v", first)
+	}
+
+	var out bytes.Buffer
+	second, err := run(context.Background(), cfg, &out)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+
+	if second.replay.Recovered != 5 || second.replay.Registered != 5 || len(second.replay.Duplicates) != 0 {
+		t.Fatalf("the second run must replay the five written entries: %+v\n%s", second.replay, out.String())
+	}
+	if second.tally.succeeded != 0 {
+		t.Fatalf("nothing may be written twice, got %d successes\n%s", second.tally.succeeded, out.String())
+	}
+
+	file := journal.Open(cfg.journalPath)
+	defer file.Close()
+	records, err := file.Recover()
+	if err != nil {
+		t.Fatalf("recovering the journal: %v", err)
+	}
+	if len(records) != 5 {
+		t.Fatalf("the journal must still hold exactly five records, got %d", len(records))
 	}
 }
 
