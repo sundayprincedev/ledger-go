@@ -16,17 +16,22 @@ func NewWriteWorker(parent context.Context) *WriteWorker {
 	return &WriteWorker{WorkerPool: NewWorkerPool(parent)}
 }
 
-func (wr *WriteWorker) WriteWork(registry *ledger.IDRegistry, store *ledger.AccountStore, writer ledger.Journal) WorkFunc {
+func (wr *WriteWorker) WriteWork(registry *ledger.IDRegistry, store *ledger.AccountStore, balances *ledger.Balances, writer ledger.Journal) WorkFunc {
 	return func(ctx context.Context, job *Job) error {
 		intent, ok := job.Payload.(Intent)
 		if !ok {
 			return apperrors.NewWorkerJobError(job.ID, "invalid payload", apperrors.ErrInvalidPayload)
 		}
-		return wr.StartWritePipeline(ctx, registry, store, writer, job.ID, intent)
+		ack, err := wr.StartWritePipeline(ctx, registry, store, balances, writer, job.ID, intent)
+		if err != nil {
+			return err
+		}
+		job.Ack = &ack
+		return nil
 	}
 }
 
-func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledger.IDRegistry, AccountRegistry *ledger.AccountStore, Writer ledger.Journal, jobID string, intent Intent) error {
+func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledger.IDRegistry, AccountRegistry *ledger.AccountStore, Balances *ledger.Balances, Writer ledger.Journal, jobID string, intent Intent) (Ack, error) {
 	var claimed bool
 
 	defer func() {
@@ -39,27 +44,28 @@ func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledge
 	defer cancel()
 
 	if err := intent.Validate(); err != nil {
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepIntent, Err: err}
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepIntent, Err: err}
 	}
 
 	if err := checkContext(pipelineCtx, jobID, apperrors.PipelineStepRegister); err != nil {
-		return err
+		return Ack{}, err
 	}
 
 	RegisterResult, RegisterErr := IDRegistry.Register(jobID)
 	if RegisterErr != nil {
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepRegister, Err: RegisterErr}
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepRegister, Err: RegisterErr}
 	}
 
 	if !RegisterResult.New {
 		switch RegisterResult.State {
 		case ledger.StateCompleted:
-			// TODO: build the results pipeline this collects the original result from, so a completed duplicate returns Ack and the rest of the flow to the user instead of an error
-			return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepRegister, Err: apperrors.ErrJobAlreadyCompleted}
+			return newAck(jobID, AckAlreadyCompleted), nil
+		case ledger.StatePending:
+			return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepRegister, Err: apperrors.ErrJobOutcomePending}
 		case ledger.StateInFlight:
-			return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepRegister, Err: apperrors.ErrJobAlreadyInFlight}
+			return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepRegister, Err: apperrors.ErrJobAlreadyInFlight}
 		default:
-			return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepRegister, Err: apperrors.ErrJobStateCorrupted}
+			return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepRegister, Err: apperrors.ErrJobStateCorrupted}
 		}
 	}
 
@@ -70,7 +76,7 @@ func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledge
 	}
 
 	if intent.Type != OpSingleTransfer {
-		return &apperrors.JobPipelineError{
+		return Ack{}, &apperrors.JobPipelineError{
 			JobID: jobID,
 			Step:  apperrors.PipelineStepDispatch,
 			Err:   &apperrors.UnsupportedOpTypeError{Type: string(intent.Type)},
@@ -78,59 +84,60 @@ func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledge
 	}
 
 	if currCheckErrorIntent := AccountRegistry.CheckCurrency(intent.FromAccountID, intent.CurrencyCode); currCheckErrorIntent != nil {
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepCurrency, Err: currCheckErrorIntent}
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepCurrency, Err: currCheckErrorIntent}
 	}
 
 	if currCheckErrorReceiver := AccountRegistry.CheckCurrency(intent.ToAccountID, intent.CurrencyCode); currCheckErrorReceiver != nil {
 		//TODO: Run currency conversion pipeline so currencies match (with roundrule)
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepCurrency, Err: currCheckErrorReceiver}
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepCurrency, Err: currCheckErrorReceiver}
 	}
 
 	if err := kycChecker(AccountRegistry, intent); err != nil {
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepKYC, Err: err}
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepKYC, Err: err}
 	}
 
 	splitCut, splitErr := money.SplitHouseCut(intent.Amount)
 	if splitErr != nil {
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepSplit, Err: splitErr}
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepSplit, Err: splitErr}
 	}
 
 	if len(splitCut) != 2 {
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepSplit, Err: apperrors.ErrSplitShareCount}
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepSplit, Err: apperrors.ErrSplitShareCount}
 	}
 
 	if err := checkContext(pipelineCtx, jobID, apperrors.PipelineStepBuildEntry); err != nil {
-		return err
+		return Ack{}, err
 	}
 
 	mainEntry, buildErr := buildDirectEntry(AccountRegistry, jobID, intent, splitCut)
 	if buildErr != nil {
-		return buildErr
+		return Ack{}, buildErr
 	}
 
 	if entryValidationErr := mainEntry.Validate(); entryValidationErr != nil {
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepValidateEntry, Err: entryValidationErr}
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepValidateEntry, Err: entryValidationErr}
 	}
 
 	if err := checkContext(pipelineCtx, jobID, apperrors.PipelineStepMarshal); err != nil {
-		return err
+		return Ack{}, err
 	}
 
 	payload, marshalErr := mainEntry.Marshal()
 	if marshalErr != nil {
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepMarshal, Err: marshalErr}
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepMarshal, Err: marshalErr}
 	}
 
 	if err := checkContext(pipelineCtx, jobID, apperrors.PipelineStepAppend); err != nil {
-		return err
+		return Ack{}, err
 	}
 
 	if appendError := Writer.Append(payload); appendError != nil {
 		recoveryRequired, outcomeUnknown := classifyAppendError(appendError)
 		if outcomeUnknown {
 			claimed = false
+			_ = IDRegistry.MarkPending(jobID)
 		}
-		return &apperrors.JobPipelineError{
+		return Ack{}, &apperrors.JobPipelineError{
 			JobID: jobID,
 			Step:  apperrors.PipelineStepAppend,
 			Err: &apperrors.AppendFailureError{
@@ -143,9 +150,13 @@ func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledge
 
 	claimed = false
 
-	if err := IDRegistry.Complete(jobID); err != nil {
-		return &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepComplete, Err: err}
+	if err := Balances.Apply(mainEntry); err != nil {
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepApply, Err: err}
 	}
 
-	return nil
+	if err := IDRegistry.Complete(jobID); err != nil {
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepComplete, Err: err}
+	}
+
+	return newAck(jobID, AckCompleted), nil
 }

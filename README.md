@@ -34,12 +34,13 @@ go run ./cmd/ledger -journal /tmp/ledger.log
 ## What's Next
 
 - [x] ID map filled by replay at startup
-- [ ] Balances from replay, and the trial balance
-- [ ] Report completed duplicates as already done, not failed
+- [ ] Trial balance
 - [x] Write worker runs the write pipeline end to end from `cmd/ledger`
 - [x] KYC tier limits enforced at the `kyc` stage (per-currency limits still open)
-- [ ] In-memory balances applied after the append, before the job is marked completed
-- [ ] Ack stage and the resolver pipeline that re-sends a missing ack after replay
+- [x] In-memory balances applied after the append, before the job is marked completed
+- [x] Ack on every success; a completed duplicate is re-acked as `already_completed`
+- [x] Replay applies recovered entries to balances
+- [ ] Registry pending state and the resolver pipeline
 - [ ] Evidence log for failed/rejected attempts
 - [ ] Postgres implementation of `ledger.Journal`
 

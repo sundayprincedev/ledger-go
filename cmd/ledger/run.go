@@ -26,6 +26,7 @@ type config struct {
 
 type tally struct {
 	succeeded      int
+	alreadyDone    int
 	failed         int
 	outcomePending int
 }
@@ -56,8 +57,9 @@ func run(ctx context.Context, cfg config, out io.Writer) (summary, error) {
 		len(seed.Accounts), len(seed.Operations), len(intents), describeSkipped(skipped))
 
 	registry := ledger.NewIDRegistry()
+	balances := buildBalances(seed.Accounts)
 
-	replay, err := jobs.StartReadPipeline(ctx, cfg.journalPath, registry)
+	replay, err := jobs.StartReadPipeline(ctx, cfg.journalPath, registry, balances)
 	if err != nil {
 		return summary{}, err
 	}
@@ -83,7 +85,7 @@ func run(ctx context.Context, cfg config, out io.Writer) (summary, error) {
 	errCh := make(chan error, 16)
 	resultsCh := make(chan jobs.JobResult, 16)
 
-	worker.Start(1, jobCh, errCh, resultsCh, worker.WriteWork(registry, store, file))
+	worker.Start(1, jobCh, errCh, resultsCh, worker.WriteWork(registry, store, balances, file))
 	collected := collect(errCh, resultsCh, logger)
 
 	sentCh := make(chan int, 1)
@@ -106,8 +108,13 @@ func run(ctx context.Context, cfg config, out io.Writer) (summary, error) {
 	close(resultsCh)
 
 	result := summary{replay: replay, sent: <-sentCh, tally: collected(), skipped: skipped, forced: forced}
-	logger.Printf("sent %d: %d ok, %d failed, %d outcome pending",
-		result.sent, result.tally.succeeded, result.tally.failed, result.tally.outcomePending)
+	for _, account := range seed.Accounts {
+		if now := balances.Get(account.AccountID, account.CurrencyCode); now != account.Balance {
+			logger.Printf("balance  %s %s %d -> %d", account.AccountID, account.CurrencyCode, account.Balance, now)
+		}
+	}
+	logger.Printf("sent %d: %d ok, %d already done, %d failed, %d outcome pending",
+		result.sent, result.tally.succeeded, result.tally.alreadyDone, result.tally.failed, result.tally.outcomePending)
 
 	return result, nil
 }
@@ -165,6 +172,9 @@ func collect(errCh <-chan error, resultsCh <-chan jobs.JobResult, logger *log.Lo
 		defer wg.Done()
 		for result := range resultsCh {
 			switch {
+			case result.Success && result.Ack != nil && result.Ack.Status == jobs.AckAlreadyCompleted:
+				t.alreadyDone++
+				logger.Printf("done     %s (already written, re-acked)", shortID(result.JobID))
 			case result.Success:
 				t.succeeded++
 				logger.Printf("ok       %s", shortID(result.JobID))

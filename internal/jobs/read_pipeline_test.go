@@ -56,7 +56,7 @@ func TestReadPipelineRegistersEveryRecoveredEntryAsCompleted(t *testing.T) {
 	path := writeJournal(t, entryPayload(t, "job-1"), entryPayload(t, "job-2"), entryPayload(t, "job-3"))
 	registry := ledger.NewIDRegistry()
 
-	result, err := StartReadPipeline(context.Background(), path, registry)
+	result, err := StartReadPipeline(context.Background(), path, registry, ledger.NewBalances())
 	if err != nil {
 		t.Fatalf("StartReadPipeline: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestReadPipelineMakesReplayedJobsRejectedAsCompletedDuplicates(t *testing.T
 	path := writeJournal(t, entryPayload(t, "job-1"))
 	registry := ledger.NewIDRegistry()
 
-	if _, err := StartReadPipeline(context.Background(), path, registry); err != nil {
+	if _, err := StartReadPipeline(context.Background(), path, registry, ledger.NewBalances()); err != nil {
 		t.Fatalf("StartReadPipeline: %v", err)
 	}
 
@@ -96,7 +96,7 @@ func TestReadPipelineReportsDuplicateRecordsAndKeepsGoing(t *testing.T) {
 	path := writeJournal(t, entryPayload(t, "job-1"), entryPayload(t, "job-2"), entryPayload(t, "job-1"), entryPayload(t, "job-3"))
 	registry := ledger.NewIDRegistry()
 
-	result, err := StartReadPipeline(context.Background(), path, registry)
+	result, err := StartReadPipeline(context.Background(), path, registry, ledger.NewBalances())
 	if err != nil {
 		t.Fatalf("a duplicate record must not stop replay: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestReadPipelineStopsAtTheFirstUndecodableRecord(t *testing.T) {
 	path := writeJournal(t, entryPayload(t, "job-1"), badPayload, entryPayload(t, "job-3"))
 	registry := ledger.NewIDRegistry()
 
-	result, err := StartReadPipeline(context.Background(), path, registry)
+	result, err := StartReadPipeline(context.Background(), path, registry, ledger.NewBalances())
 
 	var readErr *apperrors.ReadPipelineError
 	if !errors.As(err, &readErr) {
@@ -154,7 +154,7 @@ func TestReadPipelineStopsAtTheFirstUndecodableRecord(t *testing.T) {
 func TestReadPipelineRejectsGarbageThatPassesTheCRC(t *testing.T) {
 	path := writeJournal(t, []byte("not json"))
 
-	_, err := StartReadPipeline(context.Background(), path, ledger.NewIDRegistry())
+	_, err := StartReadPipeline(context.Background(), path, ledger.NewIDRegistry(), ledger.NewBalances())
 
 	var decodeErr *apperrors.EntryDecodeError
 	if !errors.As(err, &decodeErr) {
@@ -165,7 +165,7 @@ func TestReadPipelineRejectsGarbageThatPassesTheCRC(t *testing.T) {
 func TestReadPipelineTreatsAMissingJournalAsEmpty(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "never-written.log")
 
-	result, err := StartReadPipeline(context.Background(), path, ledger.NewIDRegistry())
+	result, err := StartReadPipeline(context.Background(), path, ledger.NewIDRegistry(), ledger.NewBalances())
 	if err != nil {
 		t.Fatalf("a journal that does not exist yet is not an error: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestReadPipelineTruncatesATornTailBeforeReplay(t *testing.T) {
 	}
 
 	registry := ledger.NewIDRegistry()
-	result, err := StartReadPipeline(context.Background(), path, registry)
+	result, err := StartReadPipeline(context.Background(), path, registry, ledger.NewBalances())
 	if err != nil {
 		t.Fatalf("a torn tail is cleaned, not fatal: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestReadPipelineStopsOnACancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := StartReadPipeline(ctx, path, registry)
+	_, err := StartReadPipeline(ctx, path, registry, ledger.NewBalances())
 
 	var readErr *apperrors.ReadPipelineError
 	if !errors.As(err, &readErr) || readErr.Step != apperrors.ReadStepContext {
@@ -215,5 +215,43 @@ func TestReadPipelineStopsOnACancelledContext(t *testing.T) {
 	}
 	if _, err := registry.LoadJob("job-1"); err == nil {
 		t.Fatal("nothing may be registered after cancellation")
+	}
+}
+
+func TestReadPipelineAppliesEachFirstCopyToBalancesOnce(t *testing.T) {
+	path := writeJournal(t, entryPayload(t, "job-1"), entryPayload(t, "job-2"), entryPayload(t, "job-1"))
+	balances := ledger.NewBalances()
+	balances.Set("CUR-001", "NGN", 10000)
+	balances.Set("CUR-002", "NGN", 0)
+
+	result, err := StartReadPipeline(context.Background(), path, ledger.NewIDRegistry(), balances)
+	if err != nil {
+		t.Fatalf("StartReadPipeline: %v", err)
+	}
+	if len(result.Duplicates) != 1 {
+		t.Fatalf("expected one duplicate, got %+v", result)
+	}
+
+	if got := balances.Get("CUR-001", "NGN"); got != 9000 {
+		t.Fatalf("two distinct entries of 500 each, the duplicate not applied: want 9000, got %d", got)
+	}
+	if got := balances.Get("CUR-002", "NGN"); got != 1000 {
+		t.Fatalf("receiver: want 1000, got %d", got)
+	}
+}
+
+func TestReadPipelineStopsWhenReplayOverflowsABalance(t *testing.T) {
+	path := writeJournal(t, entryPayload(t, "job-1"))
+	balances := ledger.NewBalances()
+	balances.Set("CUR-002", "NGN", 1<<63-1)
+
+	_, err := StartReadPipeline(context.Background(), path, ledger.NewIDRegistry(), balances)
+
+	var readErr *apperrors.ReadPipelineError
+	if !errors.As(err, &readErr) || readErr.Step != apperrors.ReadStepApply || readErr.EntryID != "job-1" {
+		t.Fatalf("expected an apply-step error naming job-1, got %v", err)
+	}
+	if !errors.Is(err, apperrors.ErrBalanceOverflow) {
+		t.Fatal("the cause must be ErrBalanceOverflow")
 	}
 }

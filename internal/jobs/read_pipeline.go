@@ -15,7 +15,7 @@ type ReplayResult struct {
 	Duplicates []*apperrors.DuplicateJournalEntryError
 }
 
-func StartReadPipeline(ctx context.Context, journalPath string, registry *ledger.IDRegistry) (ReplayResult, error) {
+func StartReadPipeline(ctx context.Context, journalPath string, registry *ledger.IDRegistry, balances *ledger.Balances) (ReplayResult, error) {
 	var result ReplayResult
 	pipelineCtx := ctx
 
@@ -42,6 +42,10 @@ func StartReadPipeline(ctx context.Context, journalPath string, registry *ledger
 		if registry.SeedCompleted(cleanEntry.ID) {
 			result.Duplicates = append(result.Duplicates, &apperrors.DuplicateJournalEntryError{EntryID: cleanEntry.ID, Index: i})
 			continue
+		}
+
+		if applyErr := balances.Apply(cleanEntry); applyErr != nil {
+			return result, &apperrors.ReadPipelineError{Step: apperrors.ReadStepApply, Index: i, EntryID: cleanEntry.ID, Err: applyErr}
 		}
 
 		result.Registered++

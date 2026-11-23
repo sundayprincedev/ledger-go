@@ -106,8 +106,8 @@ func TestRunReplaysTheJournalSoARerunWritesNothingTwice(t *testing.T) {
 	if second.replay.Recovered != 5 || second.replay.Registered != 5 || len(second.replay.Duplicates) != 0 {
 		t.Fatalf("the second run must replay the five written entries: %+v\n%s", second.replay, out.String())
 	}
-	if second.tally.succeeded != 0 {
-		t.Fatalf("nothing may be written twice, got %d successes\n%s", second.tally.succeeded, out.String())
+	if second.tally.succeeded != 0 || second.tally.alreadyDone != 5 || second.tally.failed != 2 {
+		t.Fatalf("the five written jobs are re-acked, nothing is written twice: %+v\n%s", second.tally, out.String())
 	}
 
 	file := journal.Open(cfg.journalPath)

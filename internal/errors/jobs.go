@@ -12,6 +12,7 @@ var (
 	ErrStaleJob          = errors.New("job made no progress; owning worker presumed lost")
 
 	ErrJobAlreadyInFlight  = errors.New("job is already in flight")
+	ErrJobOutcomePending   = errors.New("job outcome is unknown and being resolved")
 	ErrJobAlreadyCompleted = errors.New("job already completed")
 	ErrInvalidPayload      = errors.New("job payload is not the expected type")
 
@@ -81,6 +82,7 @@ const (
 	PipelineStepValidateEntry PipelineStep = "validate_entry"
 	PipelineStepMarshal       PipelineStep = "marshal"
 	PipelineStepAppend        PipelineStep = "append"
+	PipelineStepApply         PipelineStep = "apply"
 	PipelineStepComplete      PipelineStep = "complete"
 )
 

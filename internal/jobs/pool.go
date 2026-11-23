@@ -88,5 +88,5 @@ func (wp *WorkerPool) runJob(job *Job, errCh chan<- error, resultsCh chan<- JobR
 		return
 	}
 
-	resultsCh <- JobResult{JobID: job.ID, Success: true}
+	resultsCh <- JobResult{JobID: job.ID, Success: true, Ack: job.Ack}
 }

@@ -20,6 +20,7 @@ var (
 	ErrJobNotFound       = errors.New("job not found")
 	ErrJobStateCorrupted = errors.New("job state is not a recognized type")
 	ErrJobNotInFlight    = errors.New("job is not in flight")
+	ErrJobNotPending     = errors.New("job is not pending")
 )
 
 type JobError struct {
@@ -46,6 +47,19 @@ func (e *JobNotInFlightError) Error() string {
 
 func (e *JobNotInFlightError) Unwrap() error {
 	return ErrJobNotInFlight
+}
+
+type JobNotPendingError struct {
+	JobID string
+	State string
+}
+
+func (e *JobNotPendingError) Error() string {
+	return "job " + e.JobID + ": state is " + e.State + ", want pending"
+}
+
+func (e *JobNotPendingError) Unwrap() error {
+	return ErrJobNotPending
 }
 
 type ValidationStep string
@@ -157,4 +171,19 @@ func (e *BalanceError) Error() string {
 
 func (e *BalanceError) Unwrap() error {
 	return ErrUnbalancedEntry
+}
+
+var ErrBalanceOverflow = errors.New("balance overflows int64")
+
+type BalanceOverflowError struct {
+	AccountID    string
+	CurrencyCode string
+}
+
+func (e *BalanceOverflowError) Error() string {
+	return fmt.Sprintf("balance of account %s (%s) overflows int64", e.AccountID, e.CurrencyCode)
+}
+
+func (e *BalanceOverflowError) Unwrap() error {
+	return ErrBalanceOverflow
 }

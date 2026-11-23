@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"sort"
 	"sync"
 
 	apperrors "github.com/sundayprincedev/ledger/internal/errors"
@@ -10,6 +11,7 @@ type JobState string
 
 const (
 	StateInFlight  JobState = "in_flight"
+	StatePending   JobState = "pending"
 	StateCompleted JobState = "completed"
 )
 
@@ -84,5 +86,67 @@ func (r *IDRegistry) Release(id string) error {
 		return &apperrors.JobError{JobID: id, Err: apperrors.ErrJobNotFound}
 	}
 	delete(r.m, id)
+	return nil
+}
+
+func (r *IDRegistry) MarkPending(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	state, ok := r.m[id]
+	if !ok {
+		return &apperrors.JobError{JobID: id, Err: apperrors.ErrJobNotFound}
+	}
+	if state != StateInFlight {
+		return &apperrors.JobNotInFlightError{JobID: id, State: string(state)}
+	}
+	r.m[id] = StatePending
+	return nil
+}
+
+func (r *IDRegistry) PendingIDs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var ids []string
+	for id, state := range r.m {
+		if state == StatePending {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (r *IDRegistry) ResolveCompleted(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if err := r.requirePending(id); err != nil {
+		return err
+	}
+	r.m[id] = StateCompleted
+	return nil
+}
+
+func (r *IDRegistry) ResolveFailed(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if err := r.requirePending(id); err != nil {
+		return err
+	}
+	delete(r.m, id)
+	return nil
+}
+
+func (r *IDRegistry) requirePending(id string) error {
+	state, ok := r.m[id]
+	if !ok {
+		return &apperrors.JobError{JobID: id, Err: apperrors.ErrJobNotFound}
+	}
+	if state != StatePending {
+		return &apperrors.JobNotPendingError{JobID: id, State: string(state)}
+	}
 	return nil
 }

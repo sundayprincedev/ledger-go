@@ -53,3 +53,11 @@ func addSeedAccount(store *ledger.AccountStore, seed data.SeedAccount) error {
 		return &apperrors.KindError{Kind: seed.Kind, CurrencyCode: seed.CurrencyCode, Err: apperrors.ErrUnknownAccountKind}
 	}
 }
+
+func buildBalances(seed []data.SeedAccount) *ledger.Balances {
+	balances := ledger.NewBalances()
+	for _, seedAccount := range seed {
+		balances.Set(seedAccount.AccountID, seedAccount.CurrencyCode, seedAccount.Balance)
+	}
+	return balances
+}

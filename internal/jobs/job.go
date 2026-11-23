@@ -46,6 +46,7 @@ type Job struct {
 	Timeout   time.Duration
 	State     atomic.Int32
 	Result    []byte
+	Ack       *Ack
 	Err       error
 	CreatedAt time.Time
 	UpdatedAt atomic.Int64
@@ -61,6 +62,7 @@ func (j *Job) timeout() time.Duration {
 type JobResult struct {
 	JobID   string
 	Success bool
+	Ack     *Ack
 	Err     error
 }
 

@@ -49,7 +49,7 @@ func runJobs(t *testing.T, registry *ledger.IDRegistry, target ledger.Journal, b
 	errCh := make(chan error, 2*len(batch))
 	resultsCh := make(chan JobResult, len(batch))
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), target))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), ledger.NewBalances(), target))
 
 	for _, job := range batch {
 		jobCh <- job
@@ -82,7 +82,7 @@ func TestWriteWorkRunsThroughPool(t *testing.T) {
 	errCh := make(chan error, 4)
 	resultsCh := make(chan JobResult, 2)
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), testWriter(t)))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), ledger.NewBalances(), testWriter(t)))
 
 	first := NewWriteJob(testIntent(), 0)
 	second := NewWriteJob(testIntent(), 0)
@@ -105,17 +105,97 @@ func TestWriteWorkRunsThroughPool(t *testing.T) {
 		t.Fatalf("registry entry should be completed after a successful run, got %v (err: %v)", lookup.State, err)
 	}
 
-	secondResult := <-resultsCh
-	if secondResult.Success {
-		t.Fatal("duplicate of a completed job should not succeed")
-	}
-	if !errors.Is(secondResult.Err, apperrors.ErrJobAlreadyCompleted) {
-		t.Fatalf("expected ErrJobAlreadyCompleted, got: %v", secondResult.Err)
+	if firstResult.Ack == nil || firstResult.Ack.Status != AckCompleted || firstResult.Ack.JobID != first.ID {
+		t.Fatalf("a fresh job must be acked as completed, got %+v", firstResult.Ack)
 	}
 
-	var pipelineErr *apperrors.JobPipelineError
-	if !errors.As(secondResult.Err, &pipelineErr) || pipelineErr.Step != apperrors.PipelineStepRegister {
-		t.Fatalf("expected a register-step pipeline error, got: %v", secondResult.Err)
+	secondResult := <-resultsCh
+	if !secondResult.Success {
+		t.Fatalf("a duplicate of a completed job is re-acked, not failed: %v", secondResult.Err)
+	}
+	if secondResult.Ack == nil || secondResult.Ack.Status != AckAlreadyCompleted || secondResult.Ack.JobID != first.ID {
+		t.Fatalf("expected an already_completed ack, got %+v", secondResult.Ack)
+	}
+}
+
+func TestCompletedDuplicateWritesNothingAndMovesNoBalance(t *testing.T) {
+	registry := ledger.NewIDRegistry()
+	target := &fakeJournal{}
+	balances := ledger.NewBalances()
+	balances.Set("CUR-001", "NGN", 1000000)
+
+	first := NewWriteJob(testIntent(), 0)
+	second := NewWriteJob(testIntent(), 0)
+
+	jobCh := make(chan *Job, 2)
+	errCh := make(chan error, 8)
+	resultsCh := make(chan JobResult, 2)
+	wr := NewWriteWorker(context.Background())
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), balances, target))
+	jobCh <- first
+	jobCh <- second
+	close(jobCh)
+	wr.Wg.Wait()
+
+	after := balances.Get("CUR-001", "NGN")
+	if target.appendCalls != 1 {
+		t.Fatalf("the journal must be appended once, got %d", target.appendCalls)
+	}
+	if after != 1000000-testIntent().Amount {
+		t.Fatalf("the sender must be debited exactly once, got %d", after)
+	}
+}
+
+func TestSuccessfulJobAppliesItsEntryToBalancesBeforeCompleting(t *testing.T) {
+	registry := ledger.NewIDRegistry()
+	balances := ledger.NewBalances()
+	intent := testIntent()
+	balances.Set(intent.FromAccountID, intent.CurrencyCode, 1000000)
+
+	job := NewWriteJob(intent, 0)
+	jobCh := make(chan *Job, 1)
+	errCh := make(chan error, 4)
+	resultsCh := make(chan JobResult, 1)
+	wr := NewWriteWorker(context.Background())
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), balances, testWriter(t)))
+	jobCh <- job
+	close(jobCh)
+	wr.Wg.Wait()
+
+	if result := <-resultsCh; !result.Success {
+		t.Fatalf("job failed: %v", result.Err)
+	}
+
+	if got := balances.Get(intent.FromAccountID, intent.CurrencyCode); got != 1000000-intent.Amount {
+		t.Fatalf("sender: want %d, got %d", 1000000-intent.Amount, got)
+	}
+	if got := balances.Get(intent.ToAccountID, intent.CurrencyCode); got <= 0 {
+		t.Fatalf("receiver must be credited, got %d", got)
+	}
+}
+
+func TestFailedAppendLeavesBalancesUntouched(t *testing.T) {
+	registry := ledger.NewIDRegistry()
+	balances := ledger.NewBalances()
+	intent := testIntent()
+	balances.Set(intent.FromAccountID, intent.CurrencyCode, 1000000)
+	target := &fakeJournal{appendErr: errors.New("disk full")}
+
+	job := NewWriteJob(intent, 0)
+	jobCh := make(chan *Job, 1)
+	errCh := make(chan error, 4)
+	resultsCh := make(chan JobResult, 1)
+	wr := NewWriteWorker(context.Background())
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), balances, target))
+	jobCh <- job
+	close(jobCh)
+	wr.Wg.Wait()
+
+	if result := <-resultsCh; result.Success {
+		t.Fatal("the job must fail")
+	}
+	if got := balances.Get(intent.FromAccountID, intent.CurrencyCode); got != 1000000 {
+		t.Fatalf("a failed append must not touch balances, got %d", got)
 	}
 }
 
@@ -196,8 +276,8 @@ func TestAppendFailureClasses(t *testing.T) {
 
 			state, err := registry.LoadJob(job.ID)
 			if tc.wantClaimKept {
-				if err != nil || state.State != ledger.StateInFlight {
-					t.Fatalf("an unknown outcome must keep the claim in flight, got %+v (err: %v)", state, err)
+				if err != nil || state.State != ledger.StatePending {
+					t.Fatalf("an unknown outcome must leave the job pending, got %+v (err: %v)", state, err)
 				}
 				return
 			}
@@ -217,11 +297,14 @@ func TestRetryAfterAnUnknownOutcomeIsNotAppendedAgain(t *testing.T) {
 	if !errors.Is(results[0].Err, apperrors.ErrOutcomeUnknown) {
 		t.Fatalf("the first job should report an unknown outcome, got: %v", results[0].Err)
 	}
-	if !errors.Is(results[1].Err, apperrors.ErrJobAlreadyInFlight) {
+	if !errors.Is(results[1].Err, apperrors.ErrJobOutcomePending) {
 		t.Fatalf("the retry must be held back while the first outcome is unknown, got: %v", results[1].Err)
 	}
 	if fake.appendCalls != 1 {
 		t.Fatalf("the retry must never reach the journal, got %d appends", fake.appendCalls)
+	}
+	if ids := registry.PendingIDs(); len(ids) != 1 {
+		t.Fatalf("exactly one job should be waiting for the resolver, got %v", ids)
 	}
 }
 
@@ -233,7 +316,7 @@ func TestInvalidIntentIsRejectedBeforeRegister(t *testing.T) {
 	errCh := make(chan error, 2)
 	resultsCh := make(chan JobResult, 1)
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), testWriter(t)))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), ledger.NewBalances(), testWriter(t)))
 
 	bad := testIntent()
 	bad.Type = "transfr"
@@ -266,7 +349,7 @@ func TestCurrencyMismatchFailsJobAndReleasesClaim(t *testing.T) {
 	errCh := make(chan error, 2)
 	resultsCh := make(chan JobResult, 1)
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), testWriter(t)))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), ledger.NewBalances(), testWriter(t)))
 
 	wrongCurrency := testIntent()
 	wrongCurrency.CurrencyCode = "USD"
@@ -299,7 +382,7 @@ func TestReceiverCurrencyMismatchFailsJobAndReleasesClaim(t *testing.T) {
 	errCh := make(chan error, 2)
 	resultsCh := make(chan JobResult, 1)
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), testWriter(t)))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), ledger.NewBalances(), testWriter(t)))
 
 	toUSDAccount := testIntent()
 	toUSDAccount.ToAccountID = "CUR-005"
@@ -337,7 +420,7 @@ func TestUnsupportedOpTypeFailsJobAndReleasesClaim(t *testing.T) {
 	errCh := make(chan error, 2)
 	resultsCh := make(chan JobResult, 1)
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), testWriter(t)))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), ledger.NewBalances(), testWriter(t)))
 
 	house := testIntent()
 	house.Type = OpHouseTransfer
@@ -370,7 +453,7 @@ func TestMissingSuspenseAccountFailsJobAndReleasesClaim(t *testing.T) {
 	errCh := make(chan error, 2)
 	resultsCh := make(chan JobResult, 1)
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, ledger.NewAccountStore(), testWriter(t)))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, ledger.NewAccountStore(), ledger.NewBalances(), testWriter(t)))
 
 	job := NewWriteJob(testIntent(), 0)
 
@@ -418,7 +501,7 @@ func TestMissingHouseAccountFailsWhenACutApplies(t *testing.T) {
 	errCh := make(chan error, 2)
 	resultsCh := make(chan JobResult, 1)
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, storeWithoutHouse(t), testWriter(t)))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, storeWithoutHouse(t), ledger.NewBalances(), testWriter(t)))
 
 	job := NewWriteJob(testIntent(), 0)
 
@@ -449,7 +532,7 @@ func TestMissingHouseAccountDoesNotMatterBelowTheThreshold(t *testing.T) {
 	errCh := make(chan error, 2)
 	resultsCh := make(chan JobResult, 1)
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, storeWithoutHouse(t), testWriter(t)))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, storeWithoutHouse(t), ledger.NewBalances(), testWriter(t)))
 
 	small := testIntent()
 	small.Amount = constants.HouseFeeThreshold
@@ -467,7 +550,7 @@ func TestMissingHouseAccountDoesNotMatterBelowTheThreshold(t *testing.T) {
 
 func TestWriteWorkRejectsWrongPayload(t *testing.T) {
 	wr := NewWriteWorker(context.Background())
-	work := wr.WriteWork(ledger.NewIDRegistry(), testStore(t), testWriter(t))
+	work := wr.WriteWork(ledger.NewIDRegistry(), testStore(t), ledger.NewBalances(), testWriter(t))
 
 	bad := &Job{ID: "bad", Payload: "not an intent", Timeout: time.Second}
 	err := work(context.Background(), bad)

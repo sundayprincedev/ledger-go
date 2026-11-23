@@ -112,6 +112,7 @@ const (
 	ReadStepContext  ReadPipelineStep = "context"
 	ReadStepDecode   ReadPipelineStep = "decode"
 	ReadStepRegister ReadPipelineStep = "register"
+	ReadStepApply    ReadPipelineStep = "apply"
 )
 
 type ReadPipelineError struct {
