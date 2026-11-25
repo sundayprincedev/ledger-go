@@ -157,3 +157,61 @@ func (e *DuplicateJournalEntryError) Error() string {
 func (e *DuplicateJournalEntryError) Unwrap() error {
 	return ErrDuplicateJournalEntry
 }
+
+type ResolveStep string
+
+const (
+	ResolveStepRecover  ResolveStep = "recover"
+	ResolveStepContext  ResolveStep = "context"
+	ResolveStepDecode   ResolveStep = "decode"
+	ResolveStepComplete ResolveStep = "complete"
+	ResolveStepApply    ResolveStep = "apply"
+	ResolveStepFail     ResolveStep = "fail"
+)
+
+type ResolvePipelineError struct {
+	Step    ResolveStep
+	Index   int
+	EntryID string
+	Err     error
+}
+
+func (e *ResolvePipelineError) Error() string {
+	var b strings.Builder
+	b.WriteString("pending resolution failed at ")
+	b.WriteString(string(e.Step))
+	if e.Index >= 0 {
+		b.WriteString(fmt.Sprintf(" (record %d", e.Index))
+		if e.EntryID != "" {
+			b.WriteString(", entry ")
+			b.WriteString(e.EntryID)
+		}
+		b.WriteString(")")
+	} else if e.EntryID != "" {
+		b.WriteString(" (entry ")
+		b.WriteString(e.EntryID)
+		b.WriteString(")")
+	}
+	b.WriteString(": ")
+	b.WriteString(e.Err.Error())
+	return b.String()
+}
+
+func (e *ResolvePipelineError) Unwrap() error {
+	return e.Err
+}
+
+var ErrUnexpectedJobState = errors.New("job is in a state that cannot occur during resolution")
+
+type UnexpectedJobStateError struct {
+	JobID string
+	State string
+}
+
+func (e *UnexpectedJobStateError) Error() string {
+	return "job " + e.JobID + ": state is " + e.State + " during resolution, want pending or completed"
+}
+
+func (e *UnexpectedJobStateError) Unwrap() error {
+	return ErrUnexpectedJobState
+}

@@ -19,3 +19,10 @@ func checkReadContext(ctx context.Context, index int) error {
 	}
 	return nil
 }
+
+func checkResolveContext(ctx context.Context, index int) error {
+	if err := ctx.Err(); err != nil {
+		return &apperrors.ResolvePipelineError{Step: apperrors.ResolveStepContext, Index: index, Err: err}
+	}
+	return nil
+}

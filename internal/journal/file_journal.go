@@ -30,3 +30,11 @@ func (j *FileJournal) Close() error {
 	}
 	return j.writer.Close()
 }
+
+func (j *FileJournal) Reset() {
+	if j.writer == nil {
+		return
+	}
+	_ = j.writer.Close()
+	j.writer = nil
+}

@@ -6,6 +6,5 @@ type Journal interface {
 	Append(payload []byte) error
 	Recover() ([]journal.RawEntry, error)
 	Close() error
+	Reset()
 }
-
-// var _ Journal = (*journal.FileJournal)(nil) Move to main later

@@ -2,9 +2,12 @@ package journal
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	apperrors "github.com/sundayprincedev/ledger/internal/errors"
 )
 
 func TestAppendAndRecover(t *testing.T) {
@@ -101,4 +104,45 @@ func TestRecoverAndCleanTreatsAMissingFileAsEmpty(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("recovery must not create the file (err: %v)", err)
 	}
+}
+
+func TestResetLetsAPoisonedJournalAppendAgain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.log")
+	j := Open(path)
+	defer j.Close()
+
+	if err := j.Append([]byte("first")); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	_ = j.writer.file.Close()
+	if err := j.Append([]byte("lost")); err == nil {
+		t.Fatal("writing to a broken file must fail")
+	}
+	if err := j.Append([]byte("blocked")); !errors.Is(err, apperrors.ErrWriterPoisoned) {
+		t.Fatalf("the writer must be poisoned, got %v", err)
+	}
+
+	j.Reset()
+
+	if err := j.Append([]byte("second")); err != nil {
+		t.Fatalf("a reset journal must accept appends: %v", err)
+	}
+
+	entries, err := j.Recover()
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if len(entries) != 2 || string(entries[0].Payload) != "first" || string(entries[1].Payload) != "second" {
+		t.Fatalf("expected first and second only, got %d entries", len(entries))
+	}
+}
+
+func TestResetOnAJournalThatNeverWroteIsANoOp(t *testing.T) {
+	j := Open(filepath.Join(t.TempDir(), "ledger.log"))
+	j.Reset()
+	if err := j.Append([]byte("x")); err != nil {
+		t.Fatalf("Append after a no-op reset: %v", err)
+	}
+	_ = j.Close()
 }

@@ -25,6 +25,7 @@ func testWriter(t *testing.T) ledger.Journal {
 type fakeJournal struct {
 	appendErr   error
 	appendCalls int
+	resetCalls  int
 }
 
 func (f *fakeJournal) Append(payload []byte) error {
@@ -38,6 +39,10 @@ func (f *fakeJournal) Recover() ([]journal.RawEntry, error) {
 
 func (f *fakeJournal) Close() error {
 	return nil
+}
+
+func (f *fakeJournal) Reset() {
+	f.resetCalls++
 }
 
 func runJobs(t *testing.T, registry *ledger.IDRegistry, target ledger.Journal, batch ...*Job) []JobResult {
