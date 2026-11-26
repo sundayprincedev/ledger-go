@@ -17,6 +17,9 @@ var (
 	ErrSplitOverflow      = errors.New("split overflows int64")
 	ErrSplitMismatch      = errors.New("split shares do not add up to the amount")
 	ErrSplitShareCount    = errors.New("split did not return a house share and a receiver share")
+
+	ErrConvertInvalidAmount = errors.New("conversion amount must not be negative")
+	ErrConvertOverflow      = errors.New("converted amount overflows int64")
 )
 
 type SplitMismatchError struct {

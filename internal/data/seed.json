@@ -13,7 +13,7 @@
     {
       "account_id": "SAV-001",
       "kind": "customer_savings",
-      "currency": "NGN",
+      "currency": "USD",
       "balance": 2500000,
       "customer_id": "CUST-001",
       "customer_name": "Emeka Okafor",
@@ -130,6 +130,14 @@
       "to_account_id": "CUR-004",
       "currency": "NGN",
       "amount": 200000
+    },
+    {
+      "type": "transfer",
+      "from_account_id": "CUR-001",
+      "to_account_id": "SAV-001",
+      "currency": "NGN",
+      "amount": 160000,
+      "note": "own-customer, current to savings"
     },
     {
       "type": "transfer",

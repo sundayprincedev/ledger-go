@@ -34,7 +34,7 @@ func TestRunEndToEnd(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if result.sent != 7 || result.tally.succeeded != 5 || result.tally.failed != 2 || result.tally.outcomePending != 0 {
+	if result.sent != 8 || result.tally.succeeded != 4 || result.tally.failed != 4 || result.tally.outcomePending != 0 {
 		t.Fatalf("unexpected result: %+v\n%s", result, out.String())
 	}
 	if result.forced {
@@ -42,7 +42,7 @@ func TestRunEndToEnd(t *testing.T) {
 	}
 
 	log := out.String()
-	for _, want := range []string{"transfer limit", "not supported yet"} {
+	for _, want := range []string{"transfer limit", "not supported yet", "does not match"} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("expected the output to mention %q:\n%s", want, log)
 		}
@@ -55,7 +55,7 @@ func TestRunEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recovering the journal: %v", err)
 	}
-	if len(records) != 5 {
+	if len(records) != 4 {
 		t.Fatalf("expected one journal record per successful job, got %d", len(records))
 	}
 
@@ -93,7 +93,7 @@ func TestRunReplaysTheJournalSoARerunWritesNothingTwice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first run: %v", err)
 	}
-	if first.replay.Recovered != 0 || first.tally.succeeded != 5 {
+	if first.replay.Recovered != 0 || first.tally.succeeded != 4 {
 		t.Fatalf("unexpected first run: %+v", first)
 	}
 
@@ -103,11 +103,11 @@ func TestRunReplaysTheJournalSoARerunWritesNothingTwice(t *testing.T) {
 		t.Fatalf("second run: %v", err)
 	}
 
-	if second.replay.Recovered != 5 || second.replay.Registered != 5 || len(second.replay.Duplicates) != 0 {
-		t.Fatalf("the second run must replay the five written entries: %+v\n%s", second.replay, out.String())
+	if second.replay.Recovered != 4 || second.replay.Registered != 4 || len(second.replay.Duplicates) != 0 {
+		t.Fatalf("the second run must replay the four written entries: %+v\n%s", second.replay, out.String())
 	}
-	if second.tally.succeeded != 0 || second.tally.alreadyDone != 5 || second.tally.failed != 2 {
-		t.Fatalf("the five written jobs are re-acked, nothing is written twice: %+v\n%s", second.tally, out.String())
+	if second.tally.succeeded != 0 || second.tally.alreadyDone != 4 || second.tally.failed != 4 {
+		t.Fatalf("the four written jobs are re-acked, nothing is written twice: %+v\n%s", second.tally, out.String())
 	}
 
 	file := journal.Open(cfg.journalPath)
@@ -116,8 +116,8 @@ func TestRunReplaysTheJournalSoARerunWritesNothingTwice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recovering the journal: %v", err)
 	}
-	if len(records) != 5 {
-		t.Fatalf("the journal must still hold exactly five records, got %d", len(records))
+	if len(records) != 4 {
+		t.Fatalf("the journal must still hold exactly four records, got %d", len(records))
 	}
 }
 

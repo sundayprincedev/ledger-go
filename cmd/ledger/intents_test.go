@@ -19,8 +19,8 @@ func TestBuildIntentsFromSeed(t *testing.T) {
 	for _, intent := range intents {
 		counts[intent.Type]++
 	}
-	if counts[jobs.OpSingleTransfer] != 6 || counts[jobs.OpBulkTransfer] != 1 || len(intents) != 7 {
-		t.Fatalf("expected 6 single and 1 bulk intents, got %v", counts)
+	if counts[jobs.OpSingleTransfer] != 7 || counts[jobs.OpBulkTransfer] != 1 || len(intents) != 8 {
+		t.Fatalf("expected 7 single and 1 bulk intents, got %v", counts)
 	}
 
 	wantSkipped := map[string]int{"deposit": 2, "merchant_payout": 1, "fee": 1, "interest_accrual": 1}
