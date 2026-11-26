@@ -19,6 +19,10 @@ type AppendFailureError struct {
 	Err              error
 	RecoveryRequired bool
 	OutcomeUnknown   bool
+
+	ResolvedCompleted []string
+	ResolvedFailed    []string
+	ResolverErr       error
 }
 
 func (e *AppendFailureError) Error() string {
@@ -32,6 +36,10 @@ func (e *AppendFailureError) Error() string {
 	}
 	b.WriteString(": ")
 	b.WriteString(e.Err.Error())
+	if e.ResolverErr != nil {
+		b.WriteString("; resolving pending jobs also failed: ")
+		b.WriteString(e.ResolverErr.Error())
+	}
 	return b.String()
 }
 

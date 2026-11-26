@@ -7,4 +7,5 @@ type Journal interface {
 	Recover() ([]journal.RawEntry, error)
 	Close() error
 	Reset()
+	Poison()
 }

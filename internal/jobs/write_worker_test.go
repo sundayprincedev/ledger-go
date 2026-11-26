@@ -3,7 +3,9 @@ package jobs
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -23,17 +25,32 @@ func testWriter(t *testing.T) ledger.Journal {
 }
 
 type fakeJournal struct {
-	appendErr   error
-	appendCalls int
-	resetCalls  int
+	appendErr    error
+	appendCalls  int
+	resetCalls   int
+	poisonCalls  int
+	recoverCalls int
+	appendDelay  time.Duration
+	recoverErr   error
+	lastPayload  []byte
+	landed       bool
 }
 
 func (f *fakeJournal) Append(payload []byte) error {
 	f.appendCalls++
+	f.lastPayload = payload
+	time.Sleep(f.appendDelay)
 	return f.appendErr
 }
 
 func (f *fakeJournal) Recover() ([]journal.RawEntry, error) {
+	f.recoverCalls++
+	if f.recoverErr != nil {
+		return nil, f.recoverErr
+	}
+	if f.landed {
+		return []journal.RawEntry{{Timestamp: 1, Payload: f.lastPayload}}, nil
+	}
 	return nil, nil
 }
 
@@ -45,7 +62,16 @@ func (f *fakeJournal) Reset() {
 	f.resetCalls++
 }
 
+func (f *fakeJournal) Poison() {
+	f.poisonCalls++
+}
+
 func runJobs(t *testing.T, registry *ledger.IDRegistry, target ledger.Journal, batch ...*Job) []JobResult {
+	t.Helper()
+	return runJobsWith(t, registry, ledger.NewBalances(), target, batch...)
+}
+
+func runJobsWith(t *testing.T, registry *ledger.IDRegistry, balances *ledger.Balances, target ledger.Journal, batch ...*Job) []JobResult {
 	t.Helper()
 
 	wr := NewWriteWorker(context.Background())
@@ -54,7 +80,7 @@ func runJobs(t *testing.T, registry *ledger.IDRegistry, target ledger.Journal, b
 	errCh := make(chan error, 2*len(batch))
 	resultsCh := make(chan JobResult, len(batch))
 
-	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), ledger.NewBalances(), target))
+	wr.Start(1, jobCh, errCh, resultsCh, wr.WriteWork(registry, testStore(t), balances, target))
 
 	for _, job := range batch {
 		jobCh <- job
@@ -238,18 +264,17 @@ func TestAppendFailureClasses(t *testing.T) {
 	diskFull := errors.New("disk full")
 
 	tests := []struct {
-		name          string
-		appendErr     error
-		wantRecovery  bool
-		wantUnknown   bool
-		wantClaimKept bool
-		wantState     JobState
+		name         string
+		appendErr    error
+		wantRecovery bool
+		wantUnknown  bool
+		wantState    JobState
 	}{
-		{"write failed", &apperrors.WritePipelineError{Step: apperrors.StepWriteRecord, Err: diskFull}, true, false, false, StateFailed},
-		{"sync failed", &apperrors.WritePipelineError{Step: apperrors.StepSyncRecord, Err: diskFull}, true, true, true, StateOutcomePending},
-		{"writer already poisoned", apperrors.ErrWriterPoisoned, true, false, false, StateFailed},
-		{"payload too large", apperrors.ErrPayloadTooLarge, false, false, false, StateFailed},
-		{"journal file could not be opened", &apperrors.WritePipelineError{Step: apperrors.StepOpenFile, Err: diskFull}, false, false, false, StateFailed},
+		{"write failed", &apperrors.WritePipelineError{Step: apperrors.StepWriteRecord, Err: diskFull}, true, false, StateFailed},
+		{"sync failed", &apperrors.WritePipelineError{Step: apperrors.StepSyncRecord, Err: diskFull}, true, true, StateOutcomePending},
+		{"writer already poisoned", apperrors.ErrWriterPoisoned, true, false, StateFailed},
+		{"payload too large", apperrors.ErrPayloadTooLarge, false, false, StateFailed},
+		{"journal file could not be opened", &apperrors.WritePipelineError{Step: apperrors.StepOpenFile, Err: diskFull}, false, false, StateFailed},
 	}
 
 	for _, tc := range tests {
@@ -279,37 +304,62 @@ func TestAppendFailureClasses(t *testing.T) {
 				t.Fatalf("job state: want %s, got %s", tc.wantState, got)
 			}
 
-			state, err := registry.LoadJob(job.ID)
-			if tc.wantClaimKept {
-				if err != nil || state.State != ledger.StatePending {
-					t.Fatalf("an unknown outcome must leave the job pending, got %+v (err: %v)", state, err)
-				}
-				return
-			}
-			if !errors.Is(err, apperrors.ErrJobNotFound) {
-				t.Fatalf("nothing was committed, so the claim must be released, got: %v", err)
+			if _, err := registry.LoadJob(job.ID); !errors.Is(err, apperrors.ErrJobNotFound) {
+				t.Fatalf("nothing landed, so the claim must be released or resolved to failed, got: %v", err)
 			}
 		})
 	}
 }
 
-func TestRetryAfterAnUnknownOutcomeIsNotAppendedAgain(t *testing.T) {
+func TestUnknownOutcomeThatNeverLandedIsResolvedToFailedAndCanBeRetried(t *testing.T) {
 	registry := ledger.NewIDRegistry()
 	fake := &fakeJournal{appendErr: &apperrors.WritePipelineError{Step: apperrors.StepSyncRecord, Err: errors.New("fsync failed")}}
+	first := NewWriteJob(testIntent(), 0)
 
-	results := runJobs(t, registry, fake, NewWriteJob(testIntent(), 0), NewWriteJob(testIntent(), 0))
+	results := runJobs(t, registry, fake, first, NewWriteJob(testIntent(), 0))
 
 	if !errors.Is(results[0].Err, apperrors.ErrOutcomeUnknown) {
 		t.Fatalf("the first job should report an unknown outcome, got: %v", results[0].Err)
 	}
-	if !errors.Is(results[1].Err, apperrors.ErrJobOutcomePending) {
-		t.Fatalf("the retry must be held back while the first outcome is unknown, got: %v", results[1].Err)
+	var failure *apperrors.AppendFailureError
+	if !errors.As(results[0].Err, &failure) || !reflect.DeepEqual(failure.ResolvedFailed, []string{first.ID}) {
+		t.Fatalf("the failure must record that the job was resolved to failed, got %+v", failure)
+	}
+	if fake.resetCalls < 1 {
+		t.Fatal("the writer must be reset before the resolver reads the journal")
+	}
+	if len(registry.PendingIDs()) != 0 {
+		t.Fatal("nothing may stay pending after resolution")
+	}
+	if fake.appendCalls != 2 {
+		t.Fatalf("the retry is allowed because the entry never landed, got %d appends", fake.appendCalls)
+	}
+}
+
+func TestUnknownOutcomeThatLandedIsResolvedToCompletedAndAckedWithoutAppendingAgain(t *testing.T) {
+	registry := ledger.NewIDRegistry()
+	balances := ledger.NewBalances()
+	intent := testIntent()
+	balances.Set(intent.FromAccountID, intent.CurrencyCode, 1000000)
+	fake := &fakeJournal{appendErr: &apperrors.WritePipelineError{Step: apperrors.StepSyncRecord, Err: errors.New("fsync failed")}, landed: true}
+	first := NewWriteJob(intent, 0)
+
+	results := runJobsWith(t, registry, balances, fake, first, NewWriteJob(intent, 0))
+
+	if !results[0].Success || results[0].Ack == nil || results[0].Ack.Status != AckCompleted {
+		t.Fatalf("a job whose entry the resolver found must be acked as completed, got %+v", results[0])
+	}
+	if lookup, _ := registry.LoadJob(first.ID); lookup.State != ledger.StateCompleted {
+		t.Fatalf("want completed, got %s", lookup.State)
+	}
+	if got := balances.Get(intent.FromAccountID, intent.CurrencyCode); got != 1000000-intent.Amount {
+		t.Fatalf("the landed entry must be applied once, got %d", got)
+	}
+	if !results[1].Success || results[1].Ack == nil || results[1].Ack.Status != AckAlreadyCompleted {
+		t.Fatalf("the retry must be re-acked as already completed, got %+v", results[1])
 	}
 	if fake.appendCalls != 1 {
 		t.Fatalf("the retry must never reach the journal, got %d appends", fake.appendCalls)
-	}
-	if ids := registry.PendingIDs(); len(ids) != 1 {
-		t.Fatalf("exactly one job should be waiting for the resolver, got %v", ids)
 	}
 }
 
@@ -573,5 +623,170 @@ func TestJobTimeoutFallsBackToDefault(t *testing.T) {
 	job.Timeout = time.Second
 	if job.timeout() != time.Second {
 		t.Fatalf("explicit timeout should be kept, got %s", job.timeout())
+	}
+}
+
+type tearingJournal struct {
+	*journal.FileJournal
+	path     string
+	tearNext bool
+}
+
+func (j *tearingJournal) Append(payload []byte) error {
+	if !j.tearNext {
+		return j.FileJournal.Append(payload)
+	}
+	j.tearNext = false
+
+	f, err := os.OpenFile(j.path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.Write([]byte("torn-half-record")); err != nil {
+		return err
+	}
+	return &apperrors.WritePipelineError{Step: apperrors.StepWriteRecord, Err: errors.New("short write")}
+}
+
+func TestFailedWriteLeavesNoTornRecordBehindForTheNextAppend(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.log")
+	target := &tearingJournal{FileJournal: journal.Open(path), path: path, tearNext: true}
+	t.Cleanup(func() { _ = target.Close() })
+
+	next := testIntent()
+	next.Amount++
+
+	results := runJobs(t, ledger.NewIDRegistry(), target, NewWriteJob(testIntent(), 0), NewWriteJob(next, 0))
+
+	if results[0].Success {
+		t.Fatal("the torn write must fail its job")
+	}
+	if !results[1].Success {
+		t.Fatalf("the next job must write cleanly after the failure, got: %v", results[1].Err)
+	}
+
+	entries, err := journal.RecoverAndClean(path)
+	if err != nil {
+		t.Fatalf("the journal must stay recoverable after a failed write: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected only the second job's record, got %d", len(entries))
+	}
+}
+
+func TestFailedRecoveryPoisonsTheWriterSoNothingAppendsAfterATornTail(t *testing.T) {
+	fake := &fakeJournal{
+		appendErr:  &apperrors.WritePipelineError{Step: apperrors.StepWriteRecord, Err: errors.New("short write")},
+		recoverErr: errors.New("disk unreadable"),
+	}
+
+	result := runJobs(t, ledger.NewIDRegistry(), fake, NewWriteJob(testIntent(), 0))[0]
+
+	if result.Success {
+		t.Fatal("the job must fail")
+	}
+	if fake.resetCalls != 1 || fake.poisonCalls != 1 {
+		t.Fatalf("the writer is reset, and poisoned because recovery failed: %d resets, %d poisons", fake.resetCalls, fake.poisonCalls)
+	}
+	var failure *apperrors.AppendFailureError
+	if !errors.As(result.Err, &failure) || failure.ResolverErr == nil {
+		t.Fatalf("the failed recovery must be reported, got %v", result.Err)
+	}
+	var resolveErr *apperrors.ResolvePipelineError
+	if !errors.As(failure.ResolverErr, &resolveErr) || resolveErr.Step != apperrors.ResolveStepRecover {
+		t.Fatalf("expected a recover-step error, got %v", failure.ResolverErr)
+	}
+}
+
+func TestSuccessfulRecoveryDoesNotPoisonTheWriter(t *testing.T) {
+	fake := &fakeJournal{appendErr: &apperrors.WritePipelineError{Step: apperrors.StepWriteRecord, Err: errors.New("short write")}}
+
+	runJobs(t, ledger.NewIDRegistry(), fake, NewWriteJob(testIntent(), 0))
+
+	if fake.resetCalls != 1 || fake.poisonCalls != 0 {
+		t.Fatalf("a clean recovery resets and does not poison: %d resets, %d poisons", fake.resetCalls, fake.poisonCalls)
+	}
+}
+
+func TestEveryJobFirstSettlesAnyPendingJobs(t *testing.T) {
+	registry := pendingRegistry(t, "ghost")
+	fake := &fakeJournal{}
+
+	result := runJobs(t, registry, fake, NewWriteJob(testIntent(), 0))[0]
+
+	if !result.Success {
+		t.Fatalf("the job must run after the resolver settles the pending one: %v", result.Err)
+	}
+	if len(registry.PendingIDs()) != 0 {
+		t.Fatal("the pending job must be settled before the new job runs")
+	}
+	if _, err := registry.LoadJob("ghost"); !errors.Is(err, apperrors.ErrJobNotFound) {
+		t.Fatalf("a pending job that never landed must be released, got %v", err)
+	}
+}
+
+func TestJobsDoNotReadTheJournalWhenNothingIsPending(t *testing.T) {
+	fake := &fakeJournal{}
+
+	runJobs(t, ledger.NewIDRegistry(), fake, NewWriteJob(testIntent(), 0))
+
+	if fake.recoverCalls != 0 {
+		t.Fatalf("with nothing pending the journal must not be read, got %d reads", fake.recoverCalls)
+	}
+}
+
+func TestJobFailsAtResolveWithoutAppendingWhenPendingJobsCannotBeSettled(t *testing.T) {
+	registry := pendingRegistry(t, "ghost")
+	fake := &fakeJournal{recoverErr: errors.New("disk unreadable")}
+
+	result := runJobs(t, registry, fake, NewWriteJob(testIntent(), 0))[0]
+
+	var pipelineErr *apperrors.JobPipelineError
+	if !errors.As(result.Err, &pipelineErr) || pipelineErr.Step != apperrors.PipelineStepResolve {
+		t.Fatalf("expected a resolve-step error, got %v", result.Err)
+	}
+	if fake.appendCalls != 0 {
+		t.Fatalf("nothing may be appended while the ledger is unsettled, got %d appends", fake.appendCalls)
+	}
+	if fake.poisonCalls != 0 || fake.resetCalls != 0 {
+		t.Fatal("a failed resolver must not touch the writer")
+	}
+}
+
+func TestCancelledContextSkipsRecoveryButStillMarksTheJobPending(t *testing.T) {
+	registry := ledger.NewIDRegistry()
+	fake := &fakeJournal{
+		appendErr:   &apperrors.WritePipelineError{Step: apperrors.StepSyncRecord, Err: errors.New("fsync failed")},
+		appendDelay: 80 * time.Millisecond,
+	}
+	job := NewWriteJob(testIntent(), 20*time.Millisecond)
+
+	result := runJobs(t, registry, fake, job)[0]
+
+	var failure *apperrors.AppendFailureError
+	if !errors.As(result.Err, &failure) {
+		t.Fatalf("expected an append failure, got %v", result.Err)
+	}
+	var resolveErr *apperrors.ResolvePipelineError
+	if !errors.As(failure.ResolverErr, &resolveErr) || resolveErr.Step != apperrors.ResolveStepContext {
+		t.Fatalf("expected a context-step resolver error, got %v", failure.ResolverErr)
+	}
+	if fake.resetCalls != 0 || fake.recoverCalls != 0 {
+		t.Fatalf("a cancelled job must not start recovery: %d resets, %d recovers", fake.resetCalls, fake.recoverCalls)
+	}
+	if !reflect.DeepEqual(registry.PendingIDs(), []string{job.ID}) {
+		t.Fatalf("the unknown outcome must still be recorded as pending, got %v", registry.PendingIDs())
+	}
+
+	fake.appendErr = nil
+	fake.appendDelay = 0
+	next := runJobs(t, registry, fake, NewWriteJob(testIntent(), 0))[0]
+
+	if !next.Success {
+		t.Fatalf("the next job must settle the leftover pending job and then write: %v", next.Err)
+	}
+	if len(registry.PendingIDs()) != 0 {
+		t.Fatal("the leftover pending job must be settled by the next job")
 	}
 }

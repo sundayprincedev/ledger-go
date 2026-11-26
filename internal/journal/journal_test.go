@@ -146,3 +146,34 @@ func TestResetOnAJournalThatNeverWroteIsANoOp(t *testing.T) {
 	}
 	_ = j.Close()
 }
+
+func TestPoisonBlocksAppendsUntilTheNextReset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.log")
+	j := Open(path)
+	defer j.Close()
+
+	if err := j.Append([]byte("first")); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	j.Poison()
+	if err := j.Append([]byte("blocked")); !errors.Is(err, apperrors.ErrWriterPoisoned) {
+		t.Fatalf("a poisoned journal must refuse appends, got %v", err)
+	}
+	if err := j.Append([]byte("still blocked")); !errors.Is(err, apperrors.ErrWriterPoisoned) {
+		t.Fatalf("poison must hold across attempts, got %v", err)
+	}
+
+	j.Reset()
+	if err := j.Append([]byte("second")); err != nil {
+		t.Fatalf("Reset must lift the poison: %v", err)
+	}
+
+	entries, err := j.Recover()
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected first and second only, got %d", len(entries))
+	}
+}

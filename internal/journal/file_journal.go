@@ -1,8 +1,11 @@
 package journal
 
+import apperrors "github.com/sundayprincedev/ledger/internal/errors"
+
 type FileJournal struct {
-	path   string
-	writer *LogWriter
+	path     string
+	writer   *LogWriter
+	poisoned bool
 }
 
 func Open(path string) *FileJournal {
@@ -14,6 +17,9 @@ func (j *FileJournal) Recover() ([]RawEntry, error) {
 }
 
 func (j *FileJournal) Append(payload []byte) error {
+	if j.poisoned {
+		return apperrors.ErrWriterPoisoned
+	}
 	if j.writer == nil {
 		w, err := NewLogWriter(j.path)
 		if err != nil {
@@ -32,6 +38,16 @@ func (j *FileJournal) Close() error {
 }
 
 func (j *FileJournal) Reset() {
+	j.discardWriter()
+	j.poisoned = false
+}
+
+func (j *FileJournal) Poison() {
+	j.discardWriter()
+	j.poisoned = true
+}
+
+func (j *FileJournal) discardWriter() {
 	if j.writer == nil {
 		return
 	}

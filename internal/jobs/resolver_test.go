@@ -21,6 +21,7 @@ type recoverSpy struct {
 func (s *recoverSpy) Append([]byte) error { return nil }
 func (s *recoverSpy) Close() error        { return nil }
 func (s *recoverSpy) Reset()              {}
+func (s *recoverSpy) Poison()             {}
 func (s *recoverSpy) Recover() ([]journal.RawEntry, error) {
 	s.recoverCalls++
 	return s.records, s.recoverErr

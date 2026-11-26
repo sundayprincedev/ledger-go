@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"slices"
 
 	apperrors "github.com/sundayprincedev/ledger/internal/errors"
 	"github.com/sundayprincedev/ledger/internal/ledger"
@@ -45,6 +46,12 @@ func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledge
 
 	if err := intent.Validate(); err != nil {
 		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepIntent, Err: err}
+	}
+
+	if len(IDRegistry.PendingIDs()) > 0 {
+		if _, resolverErr := StartResolverPipeline(pipelineCtx, Writer, IDRegistry, Balances); resolverErr != nil {
+			return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepResolve, Err: resolverErr}
+		}
 	}
 
 	if err := checkContext(pipelineCtx, jobID, apperrors.PipelineStepRegister); err != nil {
@@ -133,19 +140,47 @@ func (wr *WriteWorker) StartWritePipeline(ctx context.Context, IDRegistry *ledge
 
 	if appendError := Writer.Append(payload); appendError != nil {
 		recoveryRequired, outcomeUnknown := classifyAppendError(appendError)
+		failure := &apperrors.AppendFailureError{
+			Err:              appendError,
+			RecoveryRequired: recoveryRequired,
+			OutcomeUnknown:   outcomeUnknown,
+		}
+
 		if outcomeUnknown {
 			claimed = false
 			_ = IDRegistry.MarkPending(jobID)
 		}
-		return Ack{}, &apperrors.JobPipelineError{
-			JobID: jobID,
-			Step:  apperrors.PipelineStepAppend,
-			Err: &apperrors.AppendFailureError{
-				Err:              appendError,
-				RecoveryRequired: recoveryRequired,
-				OutcomeUnknown:   outcomeUnknown,
-			},
+
+		if recoveryRequired {
+			if ctxErr := checkResolveContext(pipelineCtx, -1); ctxErr != nil {
+				failure.ResolverErr = ctxErr
+				return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepAppend, Err: failure}
+			}
+
+			Writer.Reset()
+
+			if _, recoverErr := Writer.Recover(); recoverErr != nil {
+				Writer.Poison()
+				failure.ResolverErr = &apperrors.ResolvePipelineError{Step: apperrors.ResolveStepRecover, Index: -1, Err: recoverErr}
+				return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepAppend, Err: failure}
+			}
+
+			if ctxErr := checkResolveContext(pipelineCtx, -1); ctxErr != nil {
+				failure.ResolverErr = ctxErr
+				return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepAppend, Err: failure}
+			}
+
+			resolverResult, resolverErr := StartResolverPipeline(pipelineCtx, Writer, IDRegistry, Balances)
+			failure.ResolvedCompleted = resolverResult.Completed
+			failure.ResolvedFailed = resolverResult.Failed
+			failure.ResolverErr = resolverErr
+
+			if slices.Contains(resolverResult.Completed, jobID) {
+				return newAck(jobID, AckCompleted), nil
+			}
 		}
+
+		return Ack{}, &apperrors.JobPipelineError{JobID: jobID, Step: apperrors.PipelineStepAppend, Err: failure}
 	}
 
 	claimed = false

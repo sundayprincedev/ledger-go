@@ -72,6 +72,7 @@ func NewWorkerJobErrorWithStack(jobID, reason string, err error, stack string) *
 type PipelineStep string
 
 const (
+	PipelineStepResolve       PipelineStep = "resolve"
 	PipelineStepRegister      PipelineStep = "register"
 	PipelineStepIntent        PipelineStep = "intent"
 	PipelineStepCurrency      PipelineStep = "currency"
